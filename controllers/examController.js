@@ -1,19 +1,13 @@
 // back-end/controllers/examController.js
 const mongoose = require('mongoose');
 const TimedExamAttempt = require('../models/TimedExamAttempt');
-// Question model is primarily for populating existing problem_set questions if needed,
-// or if you decide to save generated exam problems to Questions collection (which we decided against for AI exams)
-const Question = require('../models/Question');
+const Question = require('../models/Question'); // Assume it's needed for other functions or future use
 const AcademicLevel = require('../models/AcademicLevel');
 const Track = require('../models/Track');
 const Subject = require('../models/Subject');
+const { generateFullExamSetData } = require('../utils/aiTimedExamGenerator');
+const { setGeminiApiUrl, GEMINI_API_KEY, extractCleanJsonString: extractCleanJsonStringShared } = require('../utils/aiGeneralQuestionGeneratorShared');
 
-// --- تعديل اسم الدالة المستوردة ---
-const { generateFullExamSetData } = require('../utils/aiTimedExamGenerator'); // <--- الاسم الصحيح للدالة
-const { setGeminiApiUrl, GEMINI_API_KEY, extractCleanJsonString: extractCleanJsonStringShared } = require('../utils/aiGeneralQuestionGeneratorShared'); // استيراد دالة استخلاص JSON المشتركة باسم مميز
-
-
-// إعدادات افتراضية للاختبار
 const DEFAULT_NUMBER_OF_PROBLEMS = 4;
 const DEFAULT_TIME_LIMIT_MINUTES_FULL_EXAM = 120;
 
@@ -26,8 +20,6 @@ const mapLevelToApiValue = (levelDbValue) => {
     return mapping[levelDbValue] || levelDbValue;
 };
 
-
-// --- دالة تصحيح الأسئلة الفرعية (AI Grading for Sub-Question) ---
 async function gradeSubQuestionAnswerWithAI(problemContext, subQuestionText, subQuestionPoints, userAnswerText, subjectName, language = "fr") {
     const currentGeminiApiUrlForGrading = setGeminiApiUrl('gemini-1.5-flash-latest');
 
@@ -45,7 +37,6 @@ async function gradeSubQuestionAnswerWithAI(problemContext, subQuestionText, sub
                                        : language === "en" ? "The feedback MUST BE EXCLUSIVELY IN ENGLISH."
                                        : "Le feedback doit être EXCLUSIVEMENT EN FRANÇAIS.";
 
-    // تعديل صغير في الـ Prompt للتأكيد على عدم وجود Markdown
     const gradingPrompt = `
 You are an expert AI grader for ${subjectName} exams (Moroccan curriculum), focusing on ${language === "ar" ? "Arabic" : "French"} language content.
 Your task is to evaluate the student's answer to the sub-question, considering the overall problem context.
@@ -86,7 +77,7 @@ Example if incorrect:
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 contents: [{ parts: [{ text: gradingPrompt }] }],
-                generationConfig: { temperature: 0.3, maxOutputTokens: 768, responseMimeType: "application/json" }, // أضفنا responseMimeType
+                generationConfig: { temperature: 0.3, maxOutputTokens: 768, responseMimeType: "application/json" },
                 safetySettings: [
                     { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
                     { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
@@ -96,29 +87,23 @@ Example if incorrect:
             }),
         };
         const response = await fetch(currentGeminiApiUrlForGrading, fetchOptions);
-        rawResponseBodyTextForErrorLogging = await response.text(); // اقرأ الاستجابة كنص أولاً
+        rawResponseBodyTextForErrorLogging = await response.text();
 
         if (!response.ok) {
             console.error(`[AI_GRADE_SUB_Q_ERROR] Gemini API request FAILED. Status: ${response.status}. Body: ${rawResponseBodyTextForErrorLogging.substring(0, 300)}`);
             return { awardedPoints: 0, feedback: `AI grading service error (Status: ${response.status}). Response: ${rawResponseBodyTextForErrorLogging.substring(0,100)}` };
         }
         
-        // --- START IMPROVED JSON EXTRACTION LOGIC ---
         let gradingResult;
         try {
-            // أولاً، حاول تحليل النص الخام مباشرةً إذا كانت Gemini تلتزم بـ responseMimeType
-            // أو إذا أزالت الـ backticks بسبب الـ prompt المعدل.
             console.log("[AI_GRADE_SUB_Q_DEBUG] Raw response body for grading:", rawResponseBodyTextForErrorLogging);
             const parsedJsonResponse = JSON.parse(rawResponseBodyTextForErrorLogging);
 
-            // تحقق مما إذا كان الـ JSON المستلم هو مباشرةً الكائن المطلوب أو جزء من بنية Gemini الأكبر
             if (typeof parsedJsonResponse.awardedPoints === 'number' && typeof parsedJsonResponse.feedback === 'string') {
-                gradingResult = parsedJsonResponse; // الـ JSON هو الاستجابة المباشرة
+                gradingResult = parsedJsonResponse;
             } else if (parsedJsonResponse.candidates && parsedJsonResponse.candidates[0]?.content?.parts?.[0]?.text) {
-                // الاستجابة لا تزال ضمن بنية Gemini القياسية، نحتاج لاستخلاص النص ثم تحليله
                 let aiTextContent = parsedJsonResponse.candidates[0].content.parts[0].text;
                 console.log("[AI_GRADE_SUB_Q_DEBUG] Text content from Gemini structure:", aiTextContent);
-                // هنا نزيل أي backticks قد تكون لا تزال موجودة
                 const markdownMatch = aiTextContent.match(/```(?:json)?\s*([\s\S]*?)\s*```/s);
                 if (markdownMatch && markdownMatch[1]) {
                     aiTextContent = markdownMatch[1].trim();
@@ -133,10 +118,8 @@ Example if incorrect:
 
         } catch (initialParseError) {
             console.warn(`[AI_GRADE_SUB_Q_WARN] Initial JSON.parse failed ('${initialParseError.message}'). Attempting to extract from potential markdown block in raw text: ${rawResponseBodyTextForErrorLogging.substring(0,100)}...`);
-            // إذا فشل التحليل المباشر، جرب استخدام دالة الاستخلاص المشتركة كـ fallback
-            // هذه الدالة مصممة للتعامل مع ` ```json ... ``` ` بشكل جيد
             try {
-                const cleanJsonString = extractCleanJsonStringShared(rawResponseBodyTextForErrorLogging); // استخدام الدالة المشتركة
+                const cleanJsonString = extractCleanJsonStringShared(rawResponseBodyTextForErrorLogging);
                 gradingResult = JSON.parse(cleanJsonString);
                 console.log("[AI_GRADE_SUB_Q_DEBUG] Successfully parsed using extractCleanJsonStringShared.");
             } catch (fallbackParseError) {
@@ -144,8 +127,6 @@ Example if incorrect:
                 return { awardedPoints: 0, feedback: "AI grading response format error (could not parse JSON)." };
             }
         }
-        // --- END IMPROVED JSON EXTRACTION LOGIC ---
-
 
         if (!gradingResult || typeof gradingResult.awardedPoints !== 'number' || typeof gradingResult.feedback !== 'string' || gradingResult.awardedPoints < 0 || gradingResult.awardedPoints > subQuestionPoints) {
             console.error("[AI_GRADE_SUB_Q_MALFORMED] Grading JSON from AI is malformed, points out of range, or structure incorrect. Data:", gradingResult, "Raw text was:", rawResponseBodyTextForErrorLogging.substring(0,300));
@@ -154,15 +135,12 @@ Example if incorrect:
         console.log(`[AI_GRADE_SUB_Q_SUCCESS] SubQ Graded. Points: ${gradingResult.awardedPoints}/${subQuestionPoints}, Feedback: ${gradingResult.feedback.substring(0,50)}...`);
         return gradingResult;
 
-    } catch (error) { // Catch for fetch errors or unexpected issues
+    } catch (error) {
         console.error(`[AI_GRADE_SUB_Q_CATCH_ERROR] Error during AI grading: ${error.message}. Raw AI Response (start): ${rawResponseBodyTextForErrorLogging.substring(0,300)}`);
-        //  Log the full stack trace for better debugging on the server
         console.error(error.stack);
         return { awardedPoints: 0, feedback: `Error during automated grading: ${error.message.substring(0,100)}` };
     }
 }
-// --- نهاية دالة التصحيح ---
-
 
 // 1. Start a new Timed Exam (Full Exam with Multiple Problems)
 const startExam = async (req, res) => {
@@ -183,8 +161,7 @@ const startExam = async (req, res) => {
     }
 
     try {
-        // --- استخدام الاسم الصحيح للدالة ---
-        const generatedProblemsData = await generateFullExamSetData( // <--- الاسم الصحيح
+        const generatedProblemsData = await generateFullExamSetData(
             academicLevelId,
             trackId,
             subjectId,
@@ -201,36 +178,31 @@ const startExam = async (req, res) => {
 
         let overallTotalPossibleRawScore = 0;
         const problemsForAttempt = generatedProblemsData.map((problemData, index) => {
-            // problemData هو كائن يحتوي على text, subQuestions, totalPoints, lesson
-            // لا يوجد _id هنا لأننا لا نحفظه في مجموعة Questions
-
             if (typeof problemData.totalPoints !== 'number' || problemData.totalPoints <= 0) {
                 console.warn(`[EXAM_CTRL_START_WARN] Problem data (index: ${index}) has invalid or zero totalPoints: ${problemData.totalPoints}. Recalculating from subQuestions.`);
                 problemData.totalPoints = problemData.subQuestions.reduce((sum, sq) => sum + (sq.points || 0), 0);
                 if (problemData.totalPoints === 0 && problemData.subQuestions.length > 0) {
                      console.error(`Problem data (index: ${index}) STILL has 0 total points after recalculation. Problem text: ${problemData.text.substring(0,50)}... This problem might be invalid.`);
-                     // يمكنك اختيار إما تجاهل هذا التمرين أو إرجاع خطأ
                 }
             }
             overallTotalPossibleRawScore += problemData.totalPoints;
 
             const initialSubQAnswers = problemData.subQuestions.map(sq => ({
-                subQuestionText: sq.text, // نص السؤال الفرعي من بيانات AI
+                subQuestionText: sq.text,
                 subQuestionOrderInProblem: sq.difficultyOrder,
-                subQuestionPoints: sq.points, // النقاط من بيانات AI
+                subQuestionPoints: sq.points,
                 userAnswer: null,
-                aiFeedback: null, // كان اسمه aiFeedback لكن النموذج يتطلب feedback
+                aiFeedback: null, // Match with how it's stored in TimedExamAttempt model
                 awardedPoints: 0,
             }));
 
             return {
-                // لا يوجد problemQuestion (ObjectId) هنا لأننا نضمن البيانات مباشرة
-                problemTitle: problemData.problemTitle, // عنوان التمرين من AI
-                problemText: problemData.text,         // نص التمرين الرئيسي من AI
-                problemLesson: problemData.lesson,     // الدرس من AI
-                subQuestionsData: problemData.subQuestions, // بيانات الأسئلة الفرعية الأصلية من AI
+                problemTitle: problemData.problemTitle,
+                problemText: problemData.text,
+                problemLesson: problemData.lesson,
+                subQuestionsData: problemData.subQuestions, // Store original AI sub-question data
                 orderInExam: index + 1,
-                subQuestionAnswers: initialSubQAnswers, // إجابات المستخدم (فارغة مبدئيًا)
+                subQuestionAnswers: initialSubQAnswers,
                 problemRawScore: 0,
                 problemTotalPossibleRawScore: problemData.totalPoints,
             };
@@ -241,32 +213,41 @@ const startExam = async (req, res) => {
             academicLevel: academicLevelId,
             track: trackId,
             subject: subjectId,
-            difficulty: difficultyForDb, // الصعوبة العامة للاختبار (قيمة DB)
-            problems: problemsForAttempt, // البيانات المضمنة
+            difficulty: difficultyForDb,
+            problems: problemsForAttempt,
             overallTotalPossibleRawScore,
             timeLimitMinutes,
             status: 'in-progress',
             startTime: new Date(),
             config: {
                 numberOfProblems: generatedProblemsData.length,
-                difficultyApiValue: difficultyApiValue, // قيمة API الأصلية
+                difficultyApiValue: difficultyApiValue,
             }
         });
 
         const savedAttempt = await newAttempt.save();
         console.log(`[EXAM_CTRL_START_FULL_EXAM_SUCCESS] TimedExamAttempt ${savedAttempt._id} created. Overall Possible Score: ${savedAttempt.overallTotalPossibleRawScore}`);
 
-        // تجهيز البيانات للواجهة الأمامية مباشرة من savedAttempt (الذي يحتوي على البيانات المضمنة)
-        const problemsForDisplay = savedAttempt.problems.map(attemptedProblem => {
+        // Prepare data for the frontend, ensuring each problem has a unique problemId
+        const problemsForDisplay = savedAttempt.problems.map(attemptedProblemInDb => {
+            // attemptedProblemInDb is an element from the problems array in TimedExamAttempt
+            // Mongoose automatically assigns an _id to each subdocument in an array.
+            if (!attemptedProblemInDb._id) {
+                // This should ideally not happen if the schema is set up correctly for subdocuments.
+                // However, to be safe, we log it.
+                console.warn(`[EXAM_CTRL_START_WARN] Sub-document for problem order ${attemptedProblemInDb.orderInExam} is missing its own _id. This is unexpected. Falling back to order-based ID.`);
+            }
             return {
-                // لا يوجد problemId (ObjectId) هنا، يمكن استخدام فهرس أو إنشاء ID فريد إذا لزم الأمر
-                // لكن الواجهة الأمامية سترسل الإجابات بناءً على ترتيب التمرين
-                problemOrderInExam: attemptedProblem.orderInExam,
-                problemTitle: attemptedProblem.problemTitle,
-                problemText: attemptedProblem.problemText,
-                problemLesson: attemptedProblem.problemLesson,
-                problemTotalPossibleScore: attemptedProblem.problemTotalPossibleRawScore,
-                subQuestions: attemptedProblem.subQuestionsData.map(sqFromModel => ({
+                // *** USE THE SUBDOCUMENT'S _ID AS PROBLEM ID ***
+                problemId: attemptedProblemInDb._id ? attemptedProblemInDb._id.toString() : `problem_order_${attemptedProblemInDb.orderInExam}`,
+                problemOrderInExam: attemptedProblemInDb.orderInExam,
+                problemTitle: attemptedProblemInDb.problemTitle,
+                problemText: attemptedProblemInDb.problemText,
+                problemLesson: attemptedProblemInDb.problemLesson,
+                problemTotalPossibleScore: attemptedProblemInDb.problemTotalPossibleRawScore,
+                subQuestions: attemptedProblemInDb.subQuestionsData.map(sqFromModel => ({
+                    // If subQuestionsData elements also have _id (they should if they are proper subdocuments defined in schema)
+                    // _id: sqFromModel._id ? sqFromModel._id.toString() : undefined, // Can be added if needed by frontend
                     text: sqFromModel.text,
                     orderInProblem: sqFromModel.difficultyOrder,
                     points: sqFromModel.points,
@@ -276,7 +257,7 @@ const startExam = async (req, res) => {
 
         res.status(201).json({
             examAttemptId: savedAttempt._id,
-            problems: problemsForDisplay,
+            problems: problemsForDisplay, // Now contains problemId
             timeLimitMinutes: savedAttempt.timeLimitMinutes,
             startTime: savedAttempt.startTime,
             overallTotalPossibleRawScore: savedAttempt.overallTotalPossibleRawScore,
@@ -291,12 +272,12 @@ const startExam = async (req, res) => {
     }
 };
 
+// ... (submitExam, getExamResults, and other functions remain the same)
+// Ensure they are included in your actual file.
 
-// 2. Submit an Exam (Full Exam with Multiple Problems)
 const submitExam = async (req, res) => {
     const userId = req.user._id;
     const { examAttemptId } = req.params;
-    // Expected: { problemAnswers: [ { problemOrderInExam: Number, subQuestionAnswers: [ { orderInProblem: Number, userAnswer: String } ] } ] }
     const { problemAnswers } = req.body;
 
     console.log(`[EXAM_CTRL_SUBMIT_FULL_EXAM] User ${userId} submitting exam ${examAttemptId}. Received ${problemAnswers ? problemAnswers.length : 0} problem answer sets.`);
@@ -310,7 +291,7 @@ const submitExam = async (req, res) => {
 
     try {
         const attempt = await TimedExamAttempt.findById(examAttemptId)
-            .populate('subject', 'name language'); // نحتاج اسم المادة ولغتها للتصحيح
+            .populate('subject', 'name language');
 
         if (!attempt) return res.status(404).json({ message: "Exam attempt not found." });
         if (attempt.user.toString() !== userId.toString()) return res.status(403).json({ message: "Not authorized." });
@@ -321,20 +302,15 @@ const submitExam = async (req, res) => {
         const gradingPromises = [];
         let gradingFailedOverall = false;
 
-
-        for (const attemptedProblem of attempt.problems) { // حلقة على التمارين في المحاولة (من DB)
-            // ابحث عن إجابات المستخدم لهذا التمرين بناءً على الترتيب
+        for (const attemptedProblem of attempt.problems) {
+            // Frontend sends problemOrderInExam. Find the matching answer set.
             const userAnswerSetForThisProblem = problemAnswers.find(pa => pa.problemOrderInExam === attemptedProblem.orderInExam);
 
-            // let problemScore = 0; // Not needed here as it's calculated later
-
             if (userAnswerSetForThisProblem && Array.isArray(userAnswerSetForThisProblem.subQuestionAnswers)) {
-                for (const subQUserAnswer of userAnswerSetForThisProblem.subQuestionAnswers) { // حلقة على إجابات المستخدم للأسئلة الفرعية
-                    // ابحث عن خانة الإجابة المقابلة في نموذج المحاولة (DB)
+                for (const subQUserAnswer of userAnswerSetForThisProblem.subQuestionAnswers) {
                     const subQAttemptSlot = attemptedProblem.subQuestionAnswers.find(
                         slot => slot.subQuestionOrderInProblem === subQUserAnswer.orderInProblem
                     );
-                    // ابحث عن بيانات السؤال الفرعي الأصلية (النص، النقاط) من البيانات المضمنة
                     const originalSubQuestionData = attemptedProblem.subQuestionsData.find(
                         origSq => origSq.difficultyOrder === subQUserAnswer.orderInProblem
                     );
@@ -342,8 +318,6 @@ const submitExam = async (req, res) => {
                     if (subQAttemptSlot && originalSubQuestionData) {
                         subQAttemptSlot.userAnswer = subQUserAnswer.userAnswer ? subQUserAnswer.userAnswer.trim() : null;
                         
-                        // تحديد لغة التصحيح
-                        // إذا كانت المادة تحتوي على حقل 'language' (مثل 'ar', 'fr') استخدمه، وإلا افترض لغة بناءً على اسم المادة.
                         const gradingLanguage = attempt.subject.language || 
                                                 (attempt.subject.name.toLowerCase().includes("arab") ||
                                                  attempt.subject.name.toLowerCase().includes("islamia") ||
@@ -352,30 +326,28 @@ const submitExam = async (req, res) => {
                                                  attempt.subject.name.toLowerCase().includes("falsafa") ? "ar" : "fr");
 
                         const promise = gradeSubQuestionAnswerWithAI(
-                            attemptedProblem.problemText, // نص التمرين الرئيسي
-                            originalSubQuestionData.text, // نص السؤال الفرعي المحدد
-                            originalSubQuestionData.points, // النقاط القصوى لهذا السؤال الفرعي
+                            attemptedProblem.problemText,
+                            originalSubQuestionData.text,
+                            originalSubQuestionData.points,
                             subQAttemptSlot.userAnswer,
-                            attempt.subject.name, // اسم المادة
-                            gradingLanguage // تمرير اللغة المحددة
+                            attempt.subject.name,
+                            gradingLanguage
                         ).then(gradingResult => {
                             subQAttemptSlot.awardedPoints = gradingResult.awardedPoints;
-                            subQAttemptSlot.aiFeedback = gradingResult.feedback; // التأكد من تطابق الاسم مع الموديل
-                            // problemScore += gradingResult.awardedPoints; // سيتم تجميعها لاحقًا
+                            subQAttemptSlot.aiFeedback = gradingResult.feedback;
                             if (gradingResult.feedback && gradingResult.feedback.toLowerCase().includes("error") && !gradingResult.feedback.toLowerCase().includes("service error") && !gradingResult.feedback.toLowerCase().includes("configuration error")) {
                                 console.warn(`AI Grading for SubQ (Order ${subQAttemptSlot.subQuestionOrderInProblem}, Problem Order ${attemptedProblem.orderInExam}) might have an issue mentioned in feedback: ${gradingResult.feedback.substring(0,100)}`);
                             }
                         }).catch(err => {
                             console.error(`[EXAM_CTRL_SUBMIT_GRADING_CATCH] Error grading SubQ (Order ${subQAttemptSlot.subQuestionOrderInProblem}, Problem Order ${attemptedProblem.orderInExam}): ${err.message}`);
                             subQAttemptSlot.awardedPoints = 0;
-                            subQAttemptSlot.aiFeedback = "Automated grading encountered an unexpected error."; // التأكد من تطابق الاسم
+                            subQAttemptSlot.aiFeedback = "Automated grading encountered an unexpected error.";
                             gradingFailedOverall = true;
                         });
                         gradingPromises.push(promise);
                     } else {
                         if (!subQAttemptSlot) console.warn(`Slot for subQ order ${subQUserAnswer.orderInProblem} not found in attempt.problems[problemOrder:${attemptedProblem.orderInExam}].subQuestionAnswers`);
                         if (!originalSubQuestionData) console.warn(`Original data for subQ order ${subQUserAnswer.orderInProblem} not found in attempt.problems[problemOrder:${attemptedProblem.orderInExam}].subQuestionsData`);
-                        // لا يمكن تصحيح هذا السؤال الفرعي
                     }
                 }
             }
@@ -387,11 +359,10 @@ const submitExam = async (req, res) => {
             console.log(`[EXAM_CTRL_SUBMIT_FULL_EXAM] All AI sub-question gradings completed.`);
         }
 
-        // الآن، أعد حساب النقاط بعد اكتمال جميع عمليات التصحيح
         for (const attemptedProblem of attempt.problems) {
             let currentProblemScore = 0;
             for (const subQAttempt of attemptedProblem.subQuestionAnswers) {
-                currentProblemScore += (typeof subQAttempt.awardedPoints === 'number' ? subQAttempt.awardedPoints : 0); // تأكد من أن awardedPoints رقم
+                currentProblemScore += (typeof subQAttempt.awardedPoints === 'number' ? subQAttempt.awardedPoints : 0);
             }
             attemptedProblem.problemRawScore = currentProblemScore;
             overallRawScoreFromGrading += currentProblemScore;
@@ -399,7 +370,7 @@ const submitExam = async (req, res) => {
 
         attempt.overallRawScore = overallRawScoreFromGrading;
         if (attempt.overallTotalPossibleRawScore > 0) {
-            attempt.overallScoreOutOf20 = Math.round((attempt.overallRawScore / attempt.overallTotalPossibleRawScore) * 20 * 100) / 100; // لأخذ رقمين بعد الفاصلة
+            attempt.overallScoreOutOf20 = Math.round((attempt.overallRawScore / attempt.overallTotalPossibleRawScore) * 20 * 100) / 100;
         } else {
             attempt.overallScoreOutOf20 = 0;
         }
@@ -414,7 +385,6 @@ const submitExam = async (req, res) => {
         } else if (attempt.status === 'in-progress') {
             attempt.status = 'completed';
         }
-
 
         const savedAttempt = await attempt.save();
         console.log(`[EXAM_CTRL_SUBMIT_FULL_EXAM_SUCCESS] Exam ${savedAttempt._id} submitted. Overall Score: ${savedAttempt.overallRawScore}/${savedAttempt.overallTotalPossibleRawScore} (~${savedAttempt.overallScoreOutOf20}/20). Status: ${savedAttempt.status}`);
@@ -437,7 +407,6 @@ const submitExam = async (req, res) => {
     }
 };
 
-// 3. Get Exam Results (Full Exam)
 const getExamResults = async (req, res) => {
     const userId = req.user._id;
     const { examAttemptId } = req.params;
@@ -448,11 +417,10 @@ const getExamResults = async (req, res) => {
     }
 
     try {
-        // لا حاجة لـ populate problemQuestion هنا لأن البيانات مضمنة
         const attempt = await TimedExamAttempt.findById(examAttemptId)
             .populate('academicLevel', 'name')
             .populate('track', 'name')
-            .populate('subject', 'name language') // تأكد من جلب اللغة هنا أيضًا
+            .populate('subject', 'name language')
             .lean();
 
         if (!attempt) return res.status(404).json({ message: "Exam attempt not found." });
@@ -461,7 +429,7 @@ const getExamResults = async (req, res) => {
 
         const problemsForResults = attempt.problems.map(attemptedProblem => {
             return {
-                // لا يوجد problemId (ObjectId) هنا
+                problemId: attemptedProblem._id ? attemptedProblem._id.toString() : `problem_order_${attemptedProblem.orderInExam}`, // *** أضفنا problemId هنا أيضًا للاتساق ***
                 problemOrderInExam: attemptedProblem.orderInExam,
                 problemTitle: attemptedProblem.problemTitle,
                 problemText: attemptedProblem.problemText,
@@ -469,16 +437,15 @@ const getExamResults = async (req, res) => {
                 problemTotalPossibleRawScore: attemptedProblem.problemTotalPossibleRawScore,
                 problemRawScore: attemptedProblem.problemRawScore,
                 subQuestionAttempts: attemptedProblem.subQuestionAnswers.map(sqAttempt => {
-                    // بيانات السؤال الفرعي الأصلي موجودة في attemptedProblem.subQuestionsData
                     const originalSubQ = attemptedProblem.subQuestionsData.find(
                         orig => orig.difficultyOrder === sqAttempt.subQuestionOrderInProblem
                     );
                     return {
-                        text: originalSubQ ? originalSubQ.text : sqAttempt.subQuestionText, // fallback to stored text
+                        text: originalSubQ ? originalSubQ.text : sqAttempt.subQuestionText,
                         orderInProblem: sqAttempt.subQuestionOrderInProblem,
-                        pointsPossible: originalSubQ ? originalSubQ.points : sqAttempt.subQuestionPoints, // fallback
+                        pointsPossible: originalSubQ ? originalSubQ.points : sqAttempt.subQuestionPoints,
                         userAnswer: sqAttempt.userAnswer,
-                        aiFeedback: sqAttempt.aiFeedback, // التأكد من تطابق الاسم مع الموديل
+                        aiFeedback: sqAttempt.aiFeedback,
                         awardedPoints: sqAttempt.awardedPoints,
                     };
                 }).sort((a,b) => a.orderInProblem - b.orderInProblem),
@@ -501,7 +468,7 @@ const getExamResults = async (req, res) => {
             startTime: attempt.startTime,
             endTime: attempt.endTime,
             status: attempt.status,
-            problems: problemsForResults
+            problems: problemsForResults // الآن يحتوي على problemId لكل تمرين
         };
 
         console.log(`[EXAM_CTRL_RESULTS_FULL_EXAM_SUCCESS] Results for exam ${attempt._id}. Score: ${resultPayload.overallRawScore}/${resultPayload.overallTotalPossibleRawScore}`);
@@ -518,5 +485,4 @@ module.exports = {
     startExam,
     submitExam,
     getExamResults,
-    // gradeSubQuestionAnswerWithAI, // لا تحتاج لتصديرها إذا كانت تستخدم داخليًا فقط
 };
