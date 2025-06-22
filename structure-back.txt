@@ -1,0 +1,58 @@
+back-end/
+├── config/
+│   ├── db.js
+│   └── passport.js
+│
+├── controllers/
+│   ├── authController.js
+│   ├── academicLevelController.js  # <-- جديد: للتحكم بالمستويات الدراسية
+│   ├── trackController.js          # <-- جديد: للتحكم بالشعب
+│   ├── subjectController.js        # <-- سيتم تعديله
+│   ├── questionController.js       # <-- سيتم تعديله (لفصل منطق الأسئلة العامة)
+│   ├── examController.js           # <-- جديد: للتحكم في الفروض المؤقتة
+│   ├── userProgressController.js   # <-- سيتم تعديله ليتناسب مع الهيكلة الجديدة
+│   └── userController.js
+│
+├── curriculum-data/                  # <-- جديد: لتنظيم ملفات المناهج
+│   ├── سنة-اولى-ثانوي/
+│   │   └── علوم-تجريبية/
+│   │       ├── رياضيات.js
+│   │       └── فيزياء.js
+│   └── ... (ملفات ومجلدات أخرى)
+│
+├── middlewares/
+│   ├── authMiddleware.js
+│   ├── errorMiddleware.js
+│   └── validateObjectId.js
+│
+├── models/
+│   ├── AcademicLevel.js            # <-- جديد: موديل المستوى الدراسي
+│   ├── Track.js                    # <-- جديد: موديل الشعبة (يرتبط بالمستوى)
+│   ├── Subject.js                  # <-- سيتم تعديله (ليرتبط بالشعبة)
+│   ├── Question.js                 # <-- سيتم تعديله (ليرتبط بالهيكلة الجديدة)
+│   ├── User.js
+│   └── UserProgress.js             # <-- سيتم تعديله
+│
+├── node_modules/
+│
+├── routes/
+│   ├── authRoutes.js
+│   ├── academicLevelRoutes.js      # <-- جديد
+│   ├── trackRoutes.js              # <-- جديد
+│   ├── subjectRoutes.js            # <-- سيتم تعديله
+│   ├── questionRoutes.js           # <-- سيتم تعديله (للأسئلة العامة)
+│   ├── examRoutes.js               # <-- جديد (للفروض المؤقتة)
+│   ├── progressRoutes.js
+│   └── userRoutes.js
+│
+└── utils/
+    ├── aiGeneralQuestionGenerator.js # <-- جديد: لإنشاء الأسئلة العامة
+    ├── aiTimedExamGenerator.js     # <-- جديد: لإنشاء أسئلة الفرض المؤقت
+    └── generateToken.js
+
+.env
+.gitignore
+concoursCurriculum.js  # <-- سيصبح ملف تجميعي فقط
+curriculumData.js      # <-- سيصبح ملف تجميعي فقط
+package.json
+server.js
