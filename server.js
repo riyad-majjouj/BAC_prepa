@@ -7,35 +7,31 @@ const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const cors = require('cors');
 const path = require('path');
-const http = require('http'); // أو https إذا كنت ستدير HTTPS بنفسك (غير محتمل مع Railway)
+const http = require('http');
 
 // استيراد المسارات
 const authRoutes = require('./routes/authRoutes');
 const questionRoutes = require('./routes/questionRoutes');
 const progressRoutes = require('./routes/progressRoutes');
-const academicDataRoutes = require('./routes/academicDataRoutes');
+// const academicDataRoutes = require('./routes/academicDataRoutes'); // <--- تم التعليق عليه مؤقتًا
 const userRoutes = require('./routes/userRoutes');
-const examRoutes = require('./routes/examRoutes'); // مسارات الاختبارات
+const examRoutes = require('./routes/examRoutes');
 
-// استيراد إعدادات Passport (تأكد من أن المسار صحيح)
-require('./config/passport-setup')(passport);
+// استيراد إعدادات Passport
+require('./config/passport')(passport);
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 // --- 1. إعدادات CORS ---
-// قائمة النطاقات المسموح بها
 const whitelist = [
-    'http://localhost:8080', // للواجهة الأمامية المحلية (Vite)
-    'http://localhost:3000', // للواجهة الأمامية المحلية (CRA)
-    process.env.FRONTEND_URL_VERCEL, // رابط Vercel من متغيرات البيئة
-    // يمكنك إضافة المزيد من النطاقات هنا إذا لزم الأمر
+    'http://localhost:8080',
+    'http://localhost:3000',
+    process.env.FRONTEND_URL_VERCEL,
 ];
 
 const corsOptions = {
     origin: function (origin, callback) {
-        // السماح بالطلبات التي لا تحتوي على origin (مثل Postman أو تطبيقات الهاتف في التطوير)
-        // أو إذا كان الـ origin موجودًا في القائمة البيضاء
         if (!origin || whitelist.includes(origin)) {
             callback(null, true);
         } else {
@@ -43,22 +39,19 @@ const corsOptions = {
             callback(new Error('Not allowed by CORS'));
         }
     },
-    credentials: true, // ***** هذا مهم جدًا للسماح بالكوكيز *****
+    credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
-    optionsSuccessStatus: 200 // لبعض المتصفحات القديمة
+    optionsSuccessStatus: 200
 };
 app.use(cors(corsOptions));
 
-
 // --- 2. الثقة بالبروكسي (Trust Proxy) ---
-// مهم إذا كان تطبيقك يعمل خلف بروكسي عكسي (شائع في منصات الاستضافة مثل Railway)
 if (process.env.NODE_ENV === 'production') {
-    app.set('trust proxy', 1); // يثق بالبروكسي الأول (عادةً كافٍ)
+    app.set('trust proxy', 1);
     console.log("Production mode: 'trust proxy' is set.");
 }
 
-// Middleware لتحليل جسم الطلب (JSON و URL-encoded)
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -66,30 +59,23 @@ app.use(express.urlencoded({ extended: true }));
 const sessionMiddleware = session({
     secret: process.env.SESSION_SECRET || 'a very secret key for development',
     resave: false,
-    saveUninitialized: false, // تعيين إلى false أفضل للأمان والامتثال لـ GDPR
+    saveUninitialized: false,
     store: MongoStore.create({
         mongoUrl: process.env.MONGO_URI_SESSION || process.env.MONGO_URI,
-        collectionName: 'sessions', // اسم المجموعة للجلسات
-        ttl: 14 * 24 * 60 * 60 // 14 يومًا (بالثواني)
+        collectionName: 'sessions',
+        ttl: 14 * 24 * 60 * 60
     }),
     cookie: {
-        maxAge: 1000 * 60 * 60 * 24 * 7, // 7 أيام (بالمللي ثانية)
-        httpOnly: true, // يمنع الوصول للكوكيز من JavaScript العميل
-        // `secure` و `sameSite` يتم تعيينهما بناءً على بيئة التشغيل
-        secure: process.env.NODE_ENV === 'production', // يجب أن يكون true في الإنتاج (عند استخدام HTTPS)
-        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 'none' للإنتاج عبر النطاقات، يتطلب secure: true
-        // domain: process.env.NODE_ENV === 'production' ? '.yourbaserailwaydomain.app' : undefined, // قد تحتاج لتعديل هذا إذا كان Railway يوفر نطاقًا أساسيًا ثابتًا يمكنك استخدامه
-                                                                                             // أو اتركه undefined إذا كان sameSite: 'none' كافيًا
+        maxAge: 1000 * 60 * 60 * 24 * 7,
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     }
 });
 app.use(sessionMiddleware);
 
 // --- 4. Middleware لمعالجة مشكلة Google OAuth redirect_uri_mismatch (إذا كنت لا تزال بحاجته) ---
-// هذا يفترض أن Railway قد يضيف "www" أو يغير البروتوكول
-// وأن نطاقك الأساسي الذي تم تكوينه في Google Console لا يتضمنها
 const redirectToMainDomain = (req, res, next) => {
-    // تأكد من أن لديك YOUR_MAIN_DOMAIN_URL معرفًا في .env
-    // مثال: YOUR_MAIN_DOMAIN_URL=https://bacprepa-production.up.railway.app
     const mainDomain = process.env.YOUR_MAIN_DOMAIN_URL;
     if (process.env.NODE_ENV === 'production' && mainDomain && req.hostname !== new URL(mainDomain).hostname) {
         const targetUrl = new URL(req.originalUrl, mainDomain).toString();
@@ -98,11 +84,8 @@ const redirectToMainDomain = (req, res, next) => {
     }
     next();
 };
-// استخدم هذا الـ middleware فقط إذا كنت تواجه مشكلة redirect_uri_mismatch
-// وإذا كان التوجيه إلى نطاق أساسي واحد هو الحل المناسب.
-// app.use(redirectToMainDomain); // قم بإلغاء التعليق إذا كنت بحاجة إليه
+// app.use(redirectToMainDomain); // <--- معطل حاليًا، قم بإلغاء التعليق إذا كنت بحاجة إليه وتأكد من YOUR_MAIN_DOMAIN_URL
 
-// إعداد Passport
 app.use(passport.initialize());
 app.use(passport.session());
 
@@ -110,29 +93,13 @@ app.use(passport.session());
 app.use('/api/auth', authRoutes);
 app.use('/api/questions', questionRoutes);
 app.use('/api/progress', progressRoutes);
-app.use('/api/academic-data', academicDataRoutes);
+// app.use('/api/academic-data', academicDataRoutes); // <--- تم التعليق عليه مؤقتًا
 app.use('/api/users', userRoutes);
 app.use('/api/exams', examRoutes);
 
 // --- للإنتاج: خدمة ملفات الواجهة الأمامية المبنية ---
 if (process.env.NODE_ENV === 'production') {
-    // المسار إلى مجلد build الخاص بالواجهة الأمامية (React/Vite)
-    // افترض أن الواجهة الأمامية يتم خدمتها من Vercel، لذا هذا الجزء قد لا يكون ضروريًا هنا
-    // إلا إذا كنت تريد خدمة الواجهة الأمامية من نفس خادم Railway (وهو ما لا تفعله حاليًا)
-    /*
-    const frontendBuildPath = path.join(__dirname, '..', 'frontend', 'dist'); // اضبط المسار حسب هيكل مشروعك
-    if (require('fs').existsSync(frontendBuildPath)) {
-        app.use(express.static(frontendBuildPath));
-        // لأي مسار غير مطابق لمسارات API، أرسل index.html (للتعامل مع React Router)
-        app.get('*', (req, res) => {
-            res.sendFile(path.resolve(frontendBuildPath, 'index.html'));
-        });
-        console.log(`Serving frontend from: ${frontendBuildPath}`);
-    } else {
-        console.warn(`Frontend build path not found: ${frontendBuildPath}. Frontend will not be served by this server.`);
-    }
-    */
-   // بما أن الواجهة الأمامية على Vercel، هذا يكفي كنقطة نهاية أساسية
+    // بما أن الواجهة الأمامية على Vercel، هذا يكفي كنقطة نهاية أساسية
     app.get('/', (req, res) => {
         res.send('BacPrepa API is running. Frontend is hosted separately.');
     });
@@ -143,16 +110,10 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // --- الاتصال بـ MongoDB وبدء الخادم ---
-mongoose.connect(process.env.MONGO_URI, {
-    // الخيارات القديمة لم تعد مطلوبة في Mongoose 6+
-    // useNewUrlParser: true,
-    // useUnifiedTopology: true,
-    // useCreateIndex: true, // لم يعد مدعومًا
-    // useFindAndModify: false // لم يعد مدعومًا
-})
+mongoose.connect(process.env.MONGO_URI)
 .then(() => {
     console.log(`MongoDB Connected: ${mongoose.connection.host}`);
-    const server = http.createServer(app); // استخدام http.createServer
+    const server = http.createServer(app);
     server.listen(PORT, () => {
         console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
     });
