@@ -26,7 +26,7 @@ const allowedOrigins = [
     'http://localhost:8080', // للبيئة المحلية (إذا كان الفرونت إند يعمل على هذا البورت)
     // *** هذا هو المكان الذي يجب أن تضيف فيه دومين Vercel الفعلي الخاص بك ***
     // مثال: 'https://your-vercel-app-name.vercel.app',
-    // مثال: 'https://bac-boost-maroc.vercel.app'
+    'https://bac-boost-maroc.vercel.app'
 ];
 
 // إضافة FRONTEND_URL من متغيرات البيئة إذا كان مضبوطاً وغير مكرر
@@ -81,7 +81,7 @@ app.use(session({
     }),
     cookie: {
         secure: process.env.NODE_ENV === 'production', // True for HTTPS in production (Railway)
-        httpOnly: true, // يمنع JavaScript من الوصول إلى الكوكي (ممارسة أمنية جيدة)
+        httpOnly: false, // يمنع JavaScript من الوصول إلى الكوكي (ممارسة أمنية جيدة)
         maxAge: 1000 * 60 * 60 * 24 * 7, // عمر الكوكي بالملي ثانية (7 أيام)
         sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax' // 'none' for cross-origin in production
     }
