@@ -8,23 +8,23 @@ const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const cookieParser = require('cookie-parser');
 
-// تحميل متغيرات البيئة من ملف .env
+// 1. تحميل متغيرات البيئة من ملف .env
 dotenv.config();
 
-// الاتصال بقاعدة البيانات MongoDB
+// 2. الاتصال بقاعدة البيانات MongoDB
 connectDB();
 
 const app = express();
 
-// تمكين Express من الثقة بالبروكسيات العكسية (مثل Railway و Vercel)
+// 3. تمكين Express من الثقة بالبروكسيات العكسية (مثل Railway و Vercel)
 // هذا ضروري لجعل 'req.protocol' صحيحًا (HTTPS) ولاستقبال عناوين IP الحقيقية ولعمل secure cookies
 app.set('trust proxy', 1);
 
-// إعدادات CORS
+// 4. إعدادات CORS
 const allowedOrigins = [
     'http://localhost:3000', // للبيئة المحلية (React/Vue/Angular Dev Server)
     'http://localhost:8080', // للبيئة المحلية (إذا كان الفرونت إند يعمل على هذا البورت)
-    // أضف دومين Vercel الفعلي لتطبيق الواجهة الأمامية هنا
+    // *** هذا هو المكان الذي يجب أن تضيف فيه دومين Vercel الفعلي الخاص بك ***
     // مثال: 'https://your-vercel-app-name.vercel.app',
     // مثال: 'https://bac-boost-maroc.vercel.app'
 ];
@@ -39,7 +39,6 @@ if (process.env.FRONTEND_URL && !allowedOrigins.includes(process.env.FRONTEND_UR
 
 app.use(cors({
     origin: function (origin, callback) {
-        // السماح بالطلبات بدون أصل (مثل Postman) أو الطلبات من نفس المصدر
         if (!origin) return callback(null, true);
         if (allowedOrigins.indexOf(origin) !== -1) {
             callback(null, true);
@@ -53,13 +52,25 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
 }));
 
-// Middlewares لمعالجة JSON والكوكيز
+// 5. Middlewares لمعالجة JSON والكوكيز
 app.use(express.json()); // لتحليل جسم الطلبات كـ JSON
 app.use(cookieParser()); // لتحليل الكوكيز الواردة
 
-// إعداد الجلسة (Session) باستخدام express-session و MongoStore
+// 6. إعداد الجلسة (Session) باستخدام express-session و MongoStore
+// ----------------------------------------------------------------------
+// *** هنا يكمن جزء كبير من الحل المحتمل لمشكلة الجلسة ***
+// ----------------------------------------------------------------------
+// تأكد من أن SESSION_SECRET هو متغير بيئة مضبوط في Railway
+// ولا تستخدم القيمة الافتراضية 'a_very_secret_key_for_development_only' في الإنتاج
+const SESSION_SECRET = process.env.SESSION_SECRET || 'a_very_secret_key_for_development_only';
+if (SESSION_SECRET === 'a_very_secret_key_for_development_only' && process.env.NODE_ENV === 'production') {
+    console.error('[CRITICAL ERROR] SESSION_SECRET is using a weak fallback in production. This WILL cause session issues!');
+} else if (process.env.NODE_ENV === 'production') {
+    console.log('[INFO] Using custom SESSION_SECRET in production.');
+}
+
 app.use(session({
-    secret: process.env.SESSION_SECRET || 'a_very_secret_key_for_development_only', // يجب أن تكون قيمة سرية وقوية جداً في الإنتاج
+    secret: SESSION_SECRET, // استخدم المتغير الذي تم التحقق منه هنا
     resave: false, // لا تحفظ الجلسة في المخزن إذا لم يتم تعديلها
     saveUninitialized: false, // لا تحفظ الجلسات غير المهيأة (الجديدة التي لا تحتوي على بيانات)
     store: MongoStore.create({
@@ -69,31 +80,26 @@ app.use(session({
         touchAfter: 24 * 3600 // تحديث الجلسة في قاعدة البيانات مرة واحدة كل 24 ساعة (لتجنب تحديثها في كل طلب)
     }),
     cookie: {
-        // `secure` يجب أن تكون `true` في الإنتاج عندما يكون الخادم يعمل على HTTPS (مثل Railway)
-        // و`false` في التطوير (localhost) حيث يكون HTTP
-        secure: process.env.NODE_ENV === 'production',
+        secure: process.env.NODE_ENV === 'production', // True for HTTPS in production (Railway)
         httpOnly: true, // يمنع JavaScript من الوصول إلى الكوكي (ممارسة أمنية جيدة)
         maxAge: 1000 * 60 * 60 * 24 * 7, // عمر الكوكي بالملي ثانية (7 أيام)
-        // `sameSite='none'` ضروري للسماح للكوكيز بالعمل عبر النطاقات المختلفة في بيئة الإنتاج
-        // ويتطلب `secure: true`
-        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax' // 'none' for production, 'lax' for local dev
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax' // 'none' for cross-origin in production
     }
 }));
 
 // سجل لتأكيد إعدادات الكوكيز عند بدء التشغيل
 console.log(`[Session Setup] NODE_ENV is '${process.env.NODE_ENV}'. Cookie secure=${process.env.NODE_ENV === 'production'}. SameSite=${process.env.NODE_ENV === 'production' ? 'none' : 'lax'}.`);
 
-// إعداد Passport (إذا كنت تستخدمه للمصادقة)
-// تأكد أن هذا الكود موجود بعد إعداد `express-session`
+// 7. إعداد Passport (إذا كنت تستخدمه للمصادقة)
 if (process.env.USE_PASSPORT === 'true') {
-    require('./config/passport')(passport); // تهيئة استراتيجيات Passport
+    require('./config/passport')(passport);
     app.use(passport.initialize());
-    app.use(passport.session()); // مطلوب لتخزين معلومات المستخدم في الجلسة
+    app.use(passport.session());
 } else {
     console.warn('[Passport Warning] Passport authentication is disabled. Set USE_PASSPORT=true in .env to enable.');
 }
 
-// مسارات API
+// 8. مسارات API
 const userRoutes = require('./routes/userRoutes');
 const authRoutes = require('./routes/authRoutes');
 const subjectRoutes = require('./routes/subjectRoutes');
@@ -108,7 +114,7 @@ app.get('/', (req, res) => {
     res.send('API is running successfully!');
 });
 
-// مسار لاختبار الجلسة (للتشخيص)
+// مسار لاختبار الجلسة (للتشخيص) - حافظ عليه فهو مفيد جداً
 app.get('/api/test-session', (req, res) => {
     if (req.session) {
         req.session.views = (req.session.views || 0) + 1;
@@ -116,9 +122,9 @@ app.get('/api/test-session', (req, res) => {
 
         // طباعة محتويات الجلسة الكاملة للتشخيص
         console.log(`[TEST_SESSION] Session ID: ${req.sessionID}, Views: ${req.session.views}, Data: ${req.session.testData}`);
-        console.log('[TEST_SESSION] Full Session Content:', JSON.stringify(req.session, null, 2)); // سجل تفصيلي لمحتوى الجلسة
+        console.log('[TEST_SESSION] Full Session Content:', JSON.stringify(req.session, null, 2));
         
-        // مثال لتخزين بيانات مؤقتة في الجلسة
+        // مثال لتخزين بيانات مؤقتة في الجلسة لاختبار استمراريتها
         req.session.sampleAiQuestion = { id: 'test_ai_q_123', text: 'What is 1+1?', answer: '2' };
         
         res.status(200).json({
@@ -126,8 +132,8 @@ app.get('/api/test-session', (req, res) => {
             sessionId: req.sessionID,
             views: req.session.views,
             sessionData: req.session.testData,
-            cookies: req.cookies, // الكوكيز التي تم استقبالها في الطلب
-            sessionContent: req.session // محتويات الجلسة الفعلية على الخادم
+            cookies: req.cookies,
+            sessionContent: req.session
         });
     } else {
         console.error('[TEST_SESSION_FAIL] req.session is NOT available! Check session middleware setup.');
@@ -138,7 +144,7 @@ app.get('/api/test-session', (req, res) => {
     }
 });
 
-// ربط المسارات بـ Express
+// 9. ربط المسارات بـ Express
 app.use('/api/users', userRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/subjects', subjectRoutes);
@@ -148,7 +154,7 @@ app.use('/api/progress', progressRoutes);
 app.use('/api/academic-levels', academicLevelRoutes);
 app.use('/api/tracks', trackRoutes);
 
-// Middlewares لمعالجة الأخطاء (يجب أن تكون في النهاية)
+// 10. Middlewares لمعالجة الأخطاء (يجب أن تكون في النهاية)
 app.use(notFound);
 app.use(errorHandler);
 
@@ -159,8 +165,8 @@ app.listen(PORT, () => {
     console.log(`API listening on port ${PORT}`);
 
     // رسائل تحذيرية ومتغيرات بيئة للتأكد
-    if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET === 'a_very_secret_key_for_development_only') {
-        console.warn('[WARNING] SESSION_SECRET is not set or is using a weak fallback. This is unsafe for production.');
+    if (SESSION_SECRET === 'a_very_secret_key_for_development_only' && process.env.NODE_ENV === 'production') {
+        console.error('[CRITICAL] SESSION_SECRET is using a default fallback in production. This will cause session issues!');
     }
     if (!process.env.MONGO_URI) {
         console.error('[ERROR] MONGO_URI is not set. Session persistence and database connection will fail.');
