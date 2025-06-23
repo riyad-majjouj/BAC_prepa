@@ -81,7 +81,7 @@ app.use(session({
     }),
     cookie: {
         secure: process.env.NODE_ENV === 'production', // True for HTTPS in production (Railway)
-        httpOnly: false, // يمنع JavaScript من الوصول إلى الكوكي (ممارسة أمنية جيدة)
+        httpOnly: true, // يمنع JavaScript من الوصول إلى الكوكي (ممارسة أمنية جيدة)
         maxAge: 1000 * 60 * 60 * 24 * 7, // عمر الكوكي بالملي ثانية (7 أيام)
         sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax' // 'none' for cross-origin in production
     }
