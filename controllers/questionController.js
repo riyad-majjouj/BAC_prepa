@@ -232,10 +232,98 @@ const getDetailedAnswer = async (req, res) => {
     }
 };
 const validateFreeTextAnswer = async (req, res) => {
-    // This function logic also needs to be updated to use TemporaryQuestion model instead of req.session
-    // For brevity, leaving as an exercise. The pattern is the same as above.
-    // Find the temporary question in the DB, get its details, validate, then save progress.
-    return res.status(501).json({ message: "Free text validation logic needs to be updated to use new DB-based temporary storage." });
+    const { questionId, userAnswerText } = req.body;
+    const userId = req.user.id || req.user._id;
+
+    console.log(`[VALIDATE_FREETEXT_REQUEST] User: ${userId}, QID: ${questionId}`);
+
+    if (!questionId || userAnswerText === undefined || userAnswerText === null) {
+        return res.status(400).json({ message: "Question ID and user answer are required." });
+    }
+
+    try {
+        let questionText, subjectNameForAI, questionType;
+        let progressDataPayload = {};
+
+        if (questionId.startsWith('ai_practice_')) {
+            const tempQ = await TemporaryQuestion.findOne({ questionId: questionId, userId: userId });
+            if (!tempQ || !tempQ.questionData) {
+                console.error(`[VALIDATE_FREETEXT_AI_NOT_FOUND] AI Question data for ${questionId} not in temporary DB.`);
+                return res.status(404).json({ message: "AI Question data for validation not found or has expired." });
+            }
+            
+            const qData = tempQ.questionData;
+            if (qData.type !== 'free_text') {
+                return res.status(400).json({ message: 'This question is not a free-text question.' });
+            }
+            
+            questionText = qData.question;
+            subjectNameForAI = qData.subjectName;
+            questionType = qData.type;
+
+            // تجهيز بيانات التقدم
+            progressDataPayload = {
+                isAiQuestion: true,
+                aiQuestionText: qData.question,
+                aiQuestionType: qData.type,
+                aiQuestionCorrectAnswer: qData.correctAnswer, // الإجابة النموذجية من AI
+                aiQuestionLesson: qData.lesson,
+                // استخراج السياق من البيانات المخزنة
+                academicLevel: (await AcademicLevel.findOne({ name: qData.academicLevelName }).select('_id').lean())._id,
+                track: (await Track.findOne({ name: qData.trackName }).select('_id').lean())._id,
+                subject: (await Subject.findOne({ name: qData.subjectName }).select('_id').lean())._id,
+                difficultyLevel: mapLevelToArabic(qData.apiDifficulty),
+            };
+
+            console.log(`[VALIDATE_FREETEXT_AI_PROCESSING] AI Q ${questionId} from temp DB.`);
+
+        } else if (mongoose.Types.ObjectId.isValid(questionId)) {
+            const dbQ = await Question.findById(questionId).populate('subject', 'name').lean();
+            if (!dbQ || dbQ.type !== 'free_text' || !dbQ.subject?.name) {
+                console.error(`[VALIDATE_FREETEXT_DB_NOT_FOUND] DB free_text Question ${questionId} or its subject not found.`);
+                return res.status(404).json({ message: "DB free_text Question or subject not found." });
+            }
+            questionText = dbQ.text;
+            subjectNameForAI = dbQ.subject.name;
+            questionType = dbQ.type;
+
+            // تجهيز بيانات التقدم
+            progressDataPayload = {
+                question: dbQ._id,
+                isAiQuestion: false,
+                academicLevel: dbQ.academicLevel,
+                track: dbQ.track,
+                subject: dbQ.subject._id,
+                difficultyLevel: dbQ.level,
+            };
+            console.log(`[VALIDATE_FREETEXT_DB_PROCESSING] DB Q ${questionId}.`);
+        } else {
+            return res.status(400).json({ message: "Invalid question identifier for validation." });
+        }
+
+        const aiValidationResult = await validateFreeTextAnswerWithAI(questionText, userAnswerText, subjectNameForAI, "ar");
+
+        // حفظ التقدم
+        const finalProgressEntry = {
+            user: userId,
+            userAnswer: userAnswerText,
+            isCorrect: aiValidationResult.isValid,
+            attemptedAt: new Date(),
+            ...progressDataPayload
+        };
+        
+        await UserProgress.create(finalProgressEntry);
+        console.log(`[VALIDATE_FREETEXT_PROGRESS_SAVED] User progress for QID ${questionId}. Correct: ${aiValidationResult.isValid}`);
+        
+        res.json({
+            isCorrect: aiValidationResult.isValid,
+            feedback: aiValidationResult.feedback,
+            questionId: questionId,
+        });
+    } catch (error) {
+        console.error(`[VALIDATE_FREETEXT_ERROR] QID ${questionId || 'unknown'}:`, error.message, error.stack);
+        res.status(500).json({ message: 'Error validating answer.', error: error.message });
+    }
 };
 
 // --- Admin Routes --- (الكود كما هو)
