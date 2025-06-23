@@ -22,7 +22,8 @@ const app = express();
 // (الكود الذي قدمته في السؤال الأول لإعدادات CORS كان جيدًا بعد التعديل المقترح للمصادر)
 // --- إعداد CORS ---
 const allowedOrigins = [
-    'http://localhost:3000', // للبيئة المحلية
+    'http://localhost:3000',
+    "http://localhost:8080", // للبيئة المحلية
     'https://bac-boost-maroc-git-master-lkjkljs-projects.vercel.app' // للإنتاج على Vercel
     // يمكنك إضافة أي نطاقات أخرى مسموح بها هنا
 ];
@@ -47,7 +48,7 @@ app.use(cors({
 
 app.use(express.json());
 app.use(cookieParser());
-
+app.set('trust proxy', 1);
 app.use(session({
     secret: process.env.SESSION_SECRET || 'fallback_super_secret_key_for_development_only',
     resave: false,
