@@ -85,10 +85,16 @@ const getPracticeQuestion = async (req, res) => {
             const tempAiQuestionId = `ai_practice_${uuidv4()}`;
             console.log(`[AI_PRACTICE_GENERATED] Temp ID: ${tempAiQuestionId}`);
 
-            // **تعديل:** تخزين السؤال المؤقت في قاعدة البيانات بدلاً من الجلسة
+            // --- **بداية السجلات التشخيصية** ---
+            console.log(`[DEBUG_PRACTICE_SAVE] Preparing to save temp question.`);
+            console.log(`[DEBUG_PRACTICE_SAVE] userId value to be saved: "${userId}"`);
+            console.log(`[DEBUG_PRACTICE_SAVE] userId type: ${typeof userId}`);
+            console.log(`[DEBUG_PRACTICE_SAVE] Is userId a valid ObjectId format? ${mongoose.Types.ObjectId.isValid(userId)}`);
+            // --- **نهاية السجلات التشخيصية** ---
+
             await TemporaryQuestion.create({
                 questionId: tempAiQuestionId,
-                userId: userId,
+                userId: userId, // هنا يتم الحفظ
                 questionData: {
                     ...aiGeneratedData,
                     subjectName: subjectDoc.name,
@@ -99,7 +105,6 @@ const getPracticeQuestion = async (req, res) => {
             });
             console.log(`[AI_PRACTICE_DB_STORE_SUCCESS] Stored temporary AI question ${tempAiQuestionId} in DB for user ${userId}.`);
 
-            // إرسال السؤال للفرونت إند بدون الإجابة الصحيحة
             const responseToFrontend = {
                 _id: tempAiQuestionId,
                 question: aiGeneratedData.question,
@@ -154,11 +159,10 @@ const getQuestionHint = async (req, res) => {
         res.status(500).json({ message: 'Error generating hint.', error: error.message });
     }
 };
-
 const getDetailedAnswer = async (req, res) => {
     const { questionId } = req.params;
     const { userAnswerText } = req.query;
-    const userId = req.user.id;
+    const userId = req.user.id || req.user._id;
 
     console.log(`[GET_DETAILED_ANSWER_REQUEST] User: ${userId}, QID: ${questionId}`);
 
@@ -166,9 +170,18 @@ const getDetailedAnswer = async (req, res) => {
         let qDetails, subjectName, academicLevelName, trackName, displayLevel, correctAnswerFromSource;
 
         if (questionId.startsWith('ai_practice_')) {
-            // **تعديل:** البحث عن سؤال AI في مجموعة البيانات المؤقتة
-            const tempQ = await TemporaryQuestion.findOne({ questionId, userId });
+
+            // --- **بداية السجلات التشخيصية** ---
+            console.log(`[DEBUG_DETAILED_ANSWER] Preparing to find temp question.`);
+            console.log(`[DEBUG_DETAILED_ANSWER] Searching with questionId value: "${questionId}"`);
+            console.log(`[DEBUG_DETAILED_ANSWER] Searching with userId value: "${userId}"`);
+            console.log(`[DEBUG_DETAILED_ANSWER] Searching with userId type: ${typeof userId}`);
+            // --- **نهاية السجلات التشخيصية** ---
+
+            const tempQ = await TemporaryQuestion.findOne({ questionId: questionId, userId: userId });
+
             if (tempQ && tempQ.questionData) {
+                console.log('[DEBUG_DETAILED_ANSWER] SUCCESS: Found matching document in DB.');
                 const data = tempQ.questionData;
                 qDetails = { question: data.question, type: data.type, options: data.options, correctAnswer: data.correctAnswer, lesson: data.lesson };
                 subjectName = data.subjectName;
@@ -178,7 +191,17 @@ const getDetailedAnswer = async (req, res) => {
                 correctAnswerFromSource = data.correctAnswer;
                 console.log(`[GET_DETAILED_ANSWER_AI_DB] Found AI question ${questionId} in temporary DB.`);
             } else {
-                console.error(`[GET_DETAILED_ANSWER_AI_NOT_FOUND_IN_DB] Data for AI question ${questionId} not found in temporary DB.`);
+                console.error('[DEBUG_DETAILED_ANSWER] FAIL: Did not find matching document with the given userId.');
+                // --- **بداية الاستعلام التشخيصي الإضافي** ---
+                const tempQForAnyUser = await TemporaryQuestion.findOne({ questionId: questionId });
+                if (tempQForAnyUser) {
+                    console.error(`[DEBUG_DETAILED_ANSWER] DIAGNOSTIC: Found document for this questionId, but with a different userId.`);
+                    console.error(`[DEBUG_DETAILED_ANSWER] UserID in DB Document: "${tempQForAnyUser.userId}" (type: ${typeof tempQForAnyUser.userId})`);
+                    console.error(`[DEBUG_DETAILED_ANSWER] UserID in Current Request: "${userId}" (type: ${typeof userId})`);
+                } else {
+                    console.error(`[DEBUG_DETAILED_ANSWER] DIAGNOSTIC: Document for questionId "${questionId}" does not exist in the DB at all (it may have expired).`);
+                }
+                // --- **نهاية الاستعلام التشخيصي الإضافي** ---
                 return res.status(404).json({ message: "AI Question data for detailed answer not found or has expired." });
             }
         } else if (mongoose.Types.ObjectId.isValid(questionId)) {
@@ -208,7 +231,6 @@ const getDetailedAnswer = async (req, res) => {
         res.status(500).json({ message: 'Error generating detailed answer.', error: error.message });
     }
 };
-
 const validateFreeTextAnswer = async (req, res) => {
     // This function logic also needs to be updated to use TemporaryQuestion model instead of req.session
     // For brevity, leaving as an exercise. The pattern is the same as above.
