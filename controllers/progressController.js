@@ -87,7 +87,7 @@ const saveMcqProgress = async (req, res) => {
             };
             
             // **جديد:** حذف السؤال المؤقت بعد استخدامه
-            await TemporaryQuestion.deleteOne({ _id: tempQuestion._id });
+            // await TemporaryQuestion.deleteOne({ _id: tempQuestion._id });
             console.log(`[SAVE_MCQ_AI_PROGRESS_SUCCESS] AI Q ${questionId} from temp DB. Correct: ${isCorrect}.`);
 
         } else if (mongoose.Types.ObjectId.isValid(questionId)) {
