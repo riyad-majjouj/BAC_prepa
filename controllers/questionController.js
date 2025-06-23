@@ -368,36 +368,43 @@ const deleteQuestion = async (req, res) => {
     }
 };
 
+
+
 const getAllQuestionsForAdmin = async (req, res) => {
+    console.log("--- [ADMIN_GET_ALL_QUESTIONS] Request received ---");
     try {
         const { page = 1, limit = 10, subjectId, level, trackId, academicLevelId, searchTerm, generatedBy, type } = req.query;
+        // console.log("Received query params:", req.query); // يمكنك ترك هذا أو تعليقه
+
         const queryFilter = {};
-        if (academicLevelId) queryFilter.academicLevel = new mongoose.Types.ObjectId(academicLevelId);
-        if (trackId) queryFilter.track = new mongoose.Types.ObjectId(trackId);
-        if (subjectId) queryFilter.subject = new mongoose.Types.ObjectId(subjectId);
+        if (academicLevelId) { /* ... بناء الفلتر ... */ }
+        if (trackId) { /* ... بناء الفلتر ... */ }
+        if (subjectId) { /* ... بناء الفلتر ... */ }
         if (level) queryFilter.level = level;
         if (generatedBy) queryFilter.generatedBy = generatedBy;
         if (type) queryFilter.type = type;
-        if (searchTerm) {
-            queryFilter.text = { $regex: searchTerm, $options: 'i' };
-        }
-        
+        if (searchTerm) { queryFilter.text = { $regex: searchTerm, $options: 'i' }; }
+        // console.log("Constructed Query Filter for Admin:", queryFilter); // يمكنك ترك هذا أو تعليقه
+
+        console.log("--- Attempting Question.find() WITH populate ---"); // سجل جديد
         const questions = await Question.find(queryFilter)
-            .populate('academicLevel track subject', 'name')
+            .populate('academicLevel track subject', 'name') // **تم إلغاء تعليقه الآن**
             .limit(Number(limit))
             .skip((Number(page) - 1) * Number(limit))
             .sort({ createdAt: -1 })
             .lean();
+        console.log("Fetched Questions (WITH POPULATE) for Admin count:", questions.length);
+        // --- نهاية الجزء الذي تم إلغاء تعليقه ---
 
-        const totalQuestions = await Question.countDocuments(queryFilter);
-        res.json({
-            questions,
-            totalPages: Math.ceil(totalQuestions / Number(limit)),
-            currentPage: Number(page),
-            totalQuestions: totalQuestions
-        });
+        // --- اترك الرد البسيط حاليًا، ولكن أضف الأسئلة ---
+        console.log("--- [ADMIN_GET_ALL_QUESTIONS] Sending test success response (after find WITH POPULATE) ---");
+        res.status(200).json({ message: "Test successful (find WITH POPULATE)", questions, filter: queryFilter });
+
     } catch (err) {
-        res.status(500).json({ message: "Server error while fetching admin questions.", error: err.message });
+        // **إذا حدث خطأ هنا، يجب أن يتم التقاطه ويجب أن يظهر الآن في console الباك إند**
+        console.error("--- [ADMIN_GET_ALL_QUESTIONS_ERROR in find (WITH POPULATE)] ---", err.message); // اطبع الرسالة أولاً
+        console.error("Stack Trace:", err.stack); // ثم الـ stack trace بالكامل
+        res.status(500).json({ message: 'Server error while finding questions (WITH POPULATE).', error: err.message });
     }
 };
 

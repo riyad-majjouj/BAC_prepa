@@ -51,8 +51,10 @@ router.get('/:questionId/detailed-answer', protect, getDetailedAnswer);
 // ملاحظة: تم نقل هذا من router.route('/') ليكون أكثر وضوحًا
 router.post('/', protect, admin, createQuestion);
 
-// GET /api/questions/all-for-admin
-router.get('/all-for-admin', protect, admin, getAllQuestionsForAdmin);
+router.get('/all-for-admin', (req, res, next) => {
+    console.log("--- [ROUTE] /api/questions/all-for-admin reached ---"); // سجل مهم
+    next(); // استمر إلى الـ middlewares التالية (protect, admin) ثم controller
+}, protect, admin, getAllQuestionsForAdmin);
 
 // DELETE /api/questions/delete-by-criteria
 router.delete('/delete-by-criteria', protect, admin, deleteQuestionsByCriteria);
