@@ -73,8 +73,16 @@ const saveMcqProgress = async (req, res) => {
 
         if (isAiPracticeQuestion) {
             console.log(`[SAVE_MCQ_AI_PROGRESS_ATTEMPT] Processing AI question ID: ${questionId}`);
-            if (!req.session || !req.session.tempAiPracticeQuestions || !req.session.tempAiPracticeQuestions[questionId]) {
+             console.log('[DEBUG_PROGRESS_CONTROLLER_START] Full session content at start of saveMcqProgress:', JSON.stringify(req.session, null, 2));
+            console.log(`[DEBUG_PROGRESS_CONTROLLER] Attempting to find question ID "${questionId}" in req.session.tempAiPracticeQuestions.`);
+             if (!req.session || !req.session.tempAiPracticeQuestions || !req.session.tempAiPracticeQuestions[questionId]) {
                 console.error(`[SAVE_MCQ_AI_PROGRESS_SESSION_FAIL] AI Question ${questionId} not found in session.`);
+                if (req.session && req.session.tempAiPracticeQuestions) {
+                     // هذا سيطبع المفاتيح الموجودة إذا كان الكائن موجوداً ولكنه لا يحتوي على ID السؤال الحالي
+                     console.error(`[DEBUG_PROGRESS_CONTROLLER] Keys found in tempAiPracticeQuestions: ${Object.keys(req.session.tempAiPracticeQuestions).join(', ')}`);
+                } else {
+                    console.error('[DEBUG_PROGRESS_CONTROLLER] req.session.tempAiPracticeQuestions is null or undefined.');
+                }
                 return res.status(404).json({ message: 'AI question details not found in session. Cannot verify answer.' });
             }
             const aiQuestionDetails = req.session.tempAiPracticeQuestions[questionId];
