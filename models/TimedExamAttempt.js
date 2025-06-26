@@ -30,7 +30,7 @@ const ProblemAttemptSchema = new mongoose.Schema({
     subQuestionAnswers: [SubQuestionAnswerSchema], // إجابات المستخدم على الأسئلة الفرعية
     problemRawScore: { type: Number, default: 0 }, // مجموع نقاط المستخدم لهذا التمرين
     problemTotalPossibleRawScore: { type: Number, required: true }, // مجموع النقاط الممكنة لهذا التمرين
-}, { _id: false });
+}, );
 
 
 const TimedExamAttemptSchema = new mongoose.Schema({

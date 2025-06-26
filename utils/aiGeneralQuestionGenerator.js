@@ -6,8 +6,11 @@ const {
     getRandomFromArray,
     normalizeForPath,
     loadCurriculumData,
-    extractCleanJsonString
-} = require('./aiGeneralQuestionGeneratorShared'); // تأكد من المسار الصحيح
+    extractCleanJsonString,
+    loadPromptModule // <-- تم استيراد الدالة الجديدة
+} = require('./aiGeneralQuestionGeneratorShared');
+
+const { fetchGeminiWithConfig, processStepOutput } = require('./promptHelpers'); // قد نستخدمها هنا أو لاحقًا
 
 // تم تحديث هذه النكهات لتكون أكثر تركيزًا على أسلوب الامتحانات
 const practiceQuestionTaskFlavors = [
@@ -27,41 +30,43 @@ const practiceQuestionTaskFlavors = [
 ];
 
 
-const generateAIQuestion = async (academicLevelName, trackName, subjectNameFromDB, difficultyLevelApi) => {
-    const currentGeminiApiUrl = setGeminiApiUrl('gemini-1.5-flash-latest'); // أو النموذج المفضل لديك
+const generateAIQuestion = async (academicLevelName, trackName, subjectNameFromDB, difficultyLevelApi, subjectFileNameForPrompts) => {
+    // subjectFileNameForPrompts هو الاسم الذي سيستخدم للبحث عن ملف البرومبت
+    // مثل "1BAC_SX-SM_frensh" أو "ENSA_Math"
+    // subjectNameFromDB هو الاسم الذي قد يعرض للمستخدم أو يستخدم داخليًا، قد يكون هو نفسه أو مختلفًا قليلاً.
+    // في وحدات التحكم، سنحتاج إلى تمرير هذا الوسيط الجديد.
 
-    console.log(`[AI_GEN_PRACTICE_Q_START] For: Lvl='${academicLevelName}', Trk='${trackName}', Subj='${subjectNameFromDB}', Diff='${difficultyLevelApi}'`);
-    if (!GEMINI_API_KEY || !currentGeminiApiUrl) {
-        throw new Error("AI Service configuration error: API Key or URL is missing.");
+    console.log(`[AI_GEN_PRACTICE_Q_START] For: Lvl='${academicLevelName}', Trk='${trackName}', SubjDisplay='${subjectNameFromDB}', SubjFile='${subjectFileNameForPrompts}', Diff='${difficultyLevelApi}'`);
+
+    if (!GEMINI_API_KEY) { // لا حاجة للتحقق من currentGeminiApiUrl هنا لأنه سيتم تعيينه في fetchGeminiWithConfig
+        throw new Error("AI Service configuration error: API Key is missing.");
     }
 
-    const curriculum = loadCurriculumData(academicLevelName, trackName, subjectNameFromDB);
+    const curriculum = loadCurriculumData(academicLevelName, trackName, subjectNameFromDB); // تستخدم subjectNameFromDB لتحميل المنهج
     let selectedLessonTitre = `Généralités sur ${subjectNameFromDB}`;
     let selectedParagraphTexte = `Aspect spécifique de ${subjectNameFromDB}`;
-    let questionLanguage = "fr"; // Default
+    let questionLanguage = "fr";
 
     const normalizedSubjectForLang = normalizeForPath(subjectNameFromDB);
     let defaultLangForSubject = "fr";
-    if (['arabic', 'tarbiyaislamia', 'islamic_edu', 'falsafa', 'philosophie', 'histoiregeographie', 'geo_history', 'allugha_alearabia', 'attarbia_al\'islamia', 'attarikh_w_aljghrafia'].some(sub => normalizedSubjectForLang.includes(sub))) {
+    if (['arabic', 'tarbiyaislamia', 'islamic_edu', 'falsafa', 'philosophie', 'histoiregeographie', 'geo_history', 'allugha_alearabia', 'attarbia_al\'islamia', 'attarikh_w_aljghrafia', '1bac_sx-sm_arabic', '1bac_sx-sm_edu_islamic', '1bac_sx-sm_geo_history'].some(sub => normalizedSubjectForLang.includes(sub))) {
         defaultLangForSubject = "ar";
     } else if (['english', 'anglais'].some(sub => normalizedSubjectForLang.includes(sub))) {
         defaultLangForSubject = "en";
     }
     questionLanguage = defaultLangForSubject;
 
-    // --- START MODIFIED LOGIC FOR 1BAC LESSON/TOPIC SELECTION ---
+    // --- START MODIFIED LOGIC FOR LESSON/TOPIC SELECTION (No changes needed here from your previous version) ---
     if (academicLevelName === "1BAC" && curriculum) {
-        console.log(`[AI_GEN_PRACTICE_Q_TOPIC_1BAC] Curriculum found for 1BAC. Subject: ${subjectNameFromDB}`);
+        // console.log(`[AI_GEN_PRACTICE_Q_TOPIC_1BAC] Curriculum found for 1BAC. Subject: ${subjectNameFromDB}`);
         questionLanguage = curriculum.langueContenu || (Array.isArray(curriculum) && curriculum[0]?.langueContenu) || defaultLangForSubject;
 
         if (Array.isArray(curriculum) && curriculum.length > 0) {
-            // إذا كان curriculum مصفوفة من الدروس (كما هو متوقع الآن لملفات 1BAC)
             const randomLessonFrom1BacCurriculum = getRandomFromArray(curriculum);
             if (randomLessonFrom1BacCurriculum && randomLessonFrom1BacCurriculum.titreLecon) {
-                selectedLessonTitre = randomLessonFrom1BacCurriculum.titreLecon; // اسم الدرس الفعلي
+                selectedLessonTitre = randomLessonFrom1BacCurriculum.titreLecon;
                 if (randomLessonFrom1BacCurriculum.paragraphes && randomLessonFrom1BacCurriculum.paragraphes.length > 0) {
                     const randomParagraphObj = getRandomFromArray(randomLessonFrom1BacCurriculum.paragraphes);
-                    // Paragraphs in 1BAC might be objects with 'type' and 'text'/'content'
                     if (typeof randomParagraphObj === 'string') {
                         selectedParagraphTexte = randomParagraphObj;
                     } else if (typeof randomParagraphObj === 'object' && randomParagraphObj !== null) {
@@ -73,21 +78,17 @@ const generateAIQuestion = async (academicLevelName, trackName, subjectNameFromD
                     selectedParagraphTexte = `Contenu général de la leçon: ${selectedLessonTitre}`;
                 }
             } else {
-                // Fallback if array structure is not as expected
                 selectedLessonTitre = `Thème principal de ${subjectNameFromDB} (1BAC)`;
                 selectedParagraphTexte = typeof curriculum === 'string' ? curriculum : JSON.stringify(curriculum);
             }
         } else if (typeof curriculum === 'object' && curriculum !== null && curriculum.titreLecon) {
-            // إذا كان curriculum كائن واحد يمثل درسًا (أقل احتمالاً الآن لكنه احتياطي)
             selectedLessonTitre = curriculum.titreLecon;
             selectedParagraphTexte = curriculum.description || JSON.stringify(curriculum.paragraphes || curriculum);
         } else {
-            // Fallback if curriculum is not an array or expected object
             selectedLessonTitre = `Sujet général pour ${subjectNameFromDB} (1BAC)`;
             selectedParagraphTexte = typeof curriculum === 'string' ? curriculum : JSON.stringify(curriculum);
         }
     } else if (curriculum && Array.isArray(curriculum) && curriculum.length > 0) {
-        // This is the existing logic for non-1BAC or when 1BAC curriculum is an array (which it should be)
         const randomLesson = getRandomFromArray(curriculum);
         if (randomLesson && randomLesson.titreLecon) {
             selectedLessonTitre = randomLesson.titreLecon;
@@ -97,11 +98,11 @@ const generateAIQuestion = async (academicLevelName, trackName, subjectNameFromD
                 selectedParagraphTexte = typeof randomParagraph === 'string' ? randomParagraph : (randomParagraph?.texte || `Contenu spécifique de la leçon: ${selectedLessonTitre}`);
             } else { selectedParagraphTexte = `Contenu général de la leçon: ${selectedLessonTitre}`; }
         }
-        console.log(`[AI_GEN_PRACTICE_Q_TOPIC_NON_1BAC_OR_FALLBACK] Processed curriculum as array.`);
+        // console.log(`[AI_GEN_PRACTICE_Q_TOPIC_NON_1BAC_OR_FALLBACK] Processed curriculum as array.`);
     }
-    // --- END MODIFIED LOGIC FOR 1BAC LESSON/TOPIC SELECTION ---
+    // --- END MODIFIED LOGIC FOR LESSON/TOPIC SELECTION ---
 
-    console.log(`[AI_GEN_PRACTICE_Q_TOPIC] Final Selected Topic: "${selectedLessonTitre} - ${typeof selectedParagraphTexte === 'string' ? selectedParagraphTexte.substring(0,100) : 'Object/Array Paragraph'}...", Final Lang: ${questionLanguage}`);
+    // console.log(`[AI_GEN_PRACTICE_Q_TOPIC] Final Selected Topic: "${selectedLessonTitre} - ${typeof selectedParagraphTexte === 'string' ? selectedParagraphTexte.substring(0,100) : 'Object/Array Paragraph'}...", Final Lang: ${questionLanguage}`);
 
     const isDifficult = difficultyLevelApi === 'Difficile';
     const questionTypeToGenerate = isDifficult && Math.random() < 0.6 ? "free_text" : "mcq";
@@ -115,20 +116,51 @@ const generateAIQuestion = async (academicLevelName, trackName, subjectNameFromD
             : practiceQuestionTaskFlavors.find(f => f.id === "mcq_direct_application");
     }
 
-    // --- MODIFIED lessonForJson construction ---
-    // الآن selectedLessonTitre يجب أن يكون اسم الدرس الفعلي لـ 1BAC أيضًا
-    let lessonForJson = selectedLessonTitre; // ابدأ باسم الدرس
-    // لا تقم بإلحاق selectedParagraphTexte إذا كان selectedLessonTitre هو اسم درس حقيقي
-    // selectedParagraphTexte يستخدم فقط كـ "Detailed Content/Sub-topic for Question Generation" في الـ prompt
-    lessonForJson = lessonForJson.substring(0, 250); // تأكد من أنه ليس طويلاً جدًا
+    let lessonForJson = selectedLessonTitre.substring(0, 250);
 
-    const languageInstruction = questionLanguage === "en" ? "The question and ALL its parts (text, options, correctAnswer) MUST BE EXCLUSIVELY IN ENGLISH."
-                              : questionLanguage === "ar" ? "السؤال وجميع أجزائه (النص، الخيارات، الإجابة الصحيحة) يجب أن تكون حصريًا باللغة العربية الفصحى السليمة والمناسبة للسياق الأكاديمي."
-                              : "La question et TOUTES ses parties (texte, options, correctAnswer) doivent être EXCLUSIVEMENT EN FRANÇAIS, avec un vocabulaire académique précis.";
+    // --- بناء سياق البرومبت ---
+    const promptContext = {
+        academicLevelName,
+        trackName,
+        subjectName: subjectNameFromDB, // الاسم المعروض للمادة
+        difficultyLevelApi,
+        selectedLessonTitre,
+        selectedParagraphTexte, // هذا هو "Detailed Content/Sub-topic for Question Generation"
+        questionLanguage,
+        questionTypeToGenerate, // MCQ أو free_text
+        selectedTaskFlavor,
+        lessonForJsonOutput: lessonForJson, // اسم الدرس الذي يجب أن يظهر في حقل "lesson" في JSON
+        // أي معلومات أخرى قد يحتاجها مولد البرومبت
+    };
 
-    const promptExpertise = `an expert in crafting high-school level exam questions for the Moroccan curriculum, specifically for "${academicLevelName} - ${trackName}".`;
+    // --- محاولة تحميل البرومبت المخصص ---
+    let promptText;
+    const customPromptModule = loadPromptModule(academicLevelName, trackName, subjectFileNameForPrompts, 'question');
 
-    let examStyleGuidance = `
+    if (customPromptModule && typeof customPromptModule.generatePracticeQuestionPrompt === 'function') {
+        console.log(`[AI_GEN_PRACTICE_Q_PROMPT] Using custom prompt module for: ${subjectFileNameForPrompts}`);
+        try {
+            promptText = customPromptModule.generatePracticeQuestionPrompt(promptContext);
+            if (typeof promptText !== 'string' || promptText.trim() === '') {
+                throw new Error("Custom prompt generator returned empty or invalid prompt text.");
+            }
+        } catch (customPromptError) {
+            console.error(`[AI_GEN_PRACTICE_Q_ERROR] Error executing custom prompt generator for ${subjectFileNameForPrompts}: ${customPromptError.message}. Falling back to default prompt.`);
+            promptText = null; // سيؤدي إلى استخدام البرومبت الافتراضي
+        }
+    } else if (customPromptModule) {
+        console.warn(`[AI_GEN_PRACTICE_Q_WARN] Custom prompt module found for ${subjectFileNameForPrompts}, but 'generatePracticeQuestionPrompt' function is missing or invalid. Falling back to default.`);
+    }
+
+    if (!promptText) {
+        // --- البرومبت الافتراضي (Fallback) ---
+        console.log(`[AI_GEN_PRACTICE_Q_PROMPT] Using DEFAULT built-in prompt.`);
+        const languageInstruction = questionLanguage === "en" ? "The question and ALL its parts (text, options, correctAnswer) MUST BE EXCLUSIVELY IN ENGLISH."
+                                  : questionLanguage === "ar" ? "السؤال وجميع أجزائه (النص، الخيارات، الإجابة الصحيحة) يجب أن تكون حصريًا باللغة العربية الفصحى السليمة والمناسبة للسياق الأكاديمي."
+                                  : "La question et TOUTES ses parties (texte, options, correctAnswer) doivent être EXCLUSIVEMENT EN FRANÇAIS, avec un vocabulaire académique précis.";
+
+        const promptExpertise = `an expert in crafting high-school level exam questions for the Moroccan curriculum, specifically for "${academicLevelName} - ${trackName}".`;
+        let examStyleGuidance = `
 The generated question MUST strictly emulate the style, structure, and cognitive demands of questions typically found in Moroccan national or regional exams (Contrôles Continus, Examen National/Régional) for the subject "${subjectNameFromDB}" at the "${academicLevelName} - ${trackName}" level.
 Focus on questions that assess:
 - Clear understanding of key concepts.
@@ -139,22 +171,17 @@ The question should be challenging yet fair for a student at this level preparin
 The question should be based on the provided "Lesson" and "Specific Sub-topic".
 The language of the question and all its components must be strictly ${questionLanguage}.
 `;
+        if (difficultyLevelApi === "Difficile") { examStyleGuidance += "This question should be particularly challenging..."; }
+        else if (difficultyLevelApi === "Moyen") { examStyleGuidance += "This question should require some analytical thought..."; }
+        else { examStyleGuidance += "This question should test fundamental understanding..."; }
 
-    if (difficultyLevelApi === "Difficile") {
-        examStyleGuidance += "This question should be particularly challenging, potentially requiring synthesis of multiple concepts, deeper analysis, or solving a more complex problem. It should mirror the more difficult questions in official exams.";
-    } else if (difficultyLevelApi === "Moyen") {
-        examStyleGuidance += "This question should require some analytical thought or application of knowledge, going beyond simple recall. It should be of average exam difficulty.";
-    } else { // Facile
-        examStyleGuidance += "This question should test fundamental understanding and direct recall of key concepts from the lesson, similar to straightforward exam questions.";
-    }
+        let contextForPrompt = typeof selectedParagraphTexte === 'string' ? selectedParagraphTexte : JSON.stringify(selectedParagraphTexte);
+        const MAX_CONTEXT_LENGTH = 1500;
+        if (contextForPrompt.length > MAX_CONTEXT_LENGTH) {
+            contextForPrompt = contextForPrompt.substring(0, MAX_CONTEXT_LENGTH) + "...";
+        }
 
-    let contextForPrompt = typeof selectedParagraphTexte === 'string' ? selectedParagraphTexte : JSON.stringify(selectedParagraphTexte);
-    const MAX_CONTEXT_LENGTH = 1500;
-    if (contextForPrompt.length > MAX_CONTEXT_LENGTH) {
-        contextForPrompt = contextForPrompt.substring(0, MAX_CONTEXT_LENGTH) + "... (content truncated for brevity in prompt)";
-    }
-
-    const topicContextBlock = `
+        const topicContextBlock = `
 ACADEMIC_CONTEXT:
 - Academic Level: "${academicLevelName}"
 - Track: "${trackName}"
@@ -163,16 +190,16 @@ ACADEMIC_CONTEXT:
 - Detailed Content/Sub-topic for Question Generation: "${contextForPrompt}"
 - Question Language: "${questionLanguage}"`;
 
-    let outputFormatInstructions;
-    if (selectedTaskFlavor.type === "mcq") {
-        outputFormatInstructions = `
+        let outputFormatInstructions;
+        if (questionTypeToGenerate === "mcq") { // استخدام questionTypeToGenerate من السياق
+            outputFormatInstructions = `
 STRICT JSON OUTPUT FORMAT (MCQ):
 1.  ${languageInstruction}
 2.  Task objective: "${selectedTaskFlavor.description}". Generate a question reflecting this objective.
-3.  Format: MCQ with EXACTLY 4 distinct, plausible options. Options should be complete and grammatically correct.
-4.  Correct Answer: There must be only ONE unambiguously correct answer. The "correctAnswer" field in JSON MUST be an exact textual match of one of the provided options.
-5.  Distractors: All options, especially incorrect ones (distractors), must be relevant to the topic and plausible to a student at this level. Avoid trivial or obviously wrong options.
-6.  Question Text: Must be clear, precise, and directly test the learning objective from the task flavor and the provided lesson context.
+3.  Format: MCQ with EXACTLY 4 distinct, plausible options...
+4.  Correct Answer: ...
+5.  Distractors: ...
+6.  Question Text: ...
 7.  "lesson" field: Populate with a concise representation of "${lessonForJson}".
 8.  "type" field: Must be "mcq".
 RESPOND ONLY with a single, valid JSON object, enclosed in \`\`\`json ... \`\`\`. No preambles or apologies.
@@ -186,15 +213,15 @@ RESPOND ONLY with a single, valid JSON object, enclosed in \`\`\`json ... \`\`\`
 }
 \`\`\`
 `;
-    } else { // free_text
-        outputFormatInstructions = `
+        } else { // free_text
+            outputFormatInstructions = `
 STRICT JSON OUTPUT FORMAT (Free Text Question):
 1.  ${languageInstruction}
 2.  Task objective: "${selectedTaskFlavor.description}". Generate a question reflecting this objective.
-3.  Question Nature: The question should require a textual answer (e.g., short calculation with steps, derivation, definition with justification, explanation, analysis).
+3.  Question Nature: ...
 4.  "options" field: Must be an empty array [].
-5.  "correctAnswer" field: Provide a concise, accurate model answer or key points/steps expected. For calculations/derivations, include the final result and essential intermediate steps or formulas. This model answer is crucial for later AI-based validation.
-6.  Question Text: Must be clear, precise, and suitable for the specified academic level and difficulty, mirroring exam-style free-text questions.
+5.  "correctAnswer" field: Provide a concise, accurate model answer...
+6.  Question Text: ...
 7.  "lesson" field: Populate with a concise representation of "${lessonForJson}".
 8.  "type" field: Must be "free_text".
 RESPOND ONLY with a single, valid JSON object, enclosed in \`\`\`json ... \`\`\`. No preambles or apologies.
@@ -208,61 +235,41 @@ RESPOND ONLY with a single, valid JSON object, enclosed in \`\`\`json ... \`\`\`
 }
 \`\`\`
 `;
-    }
-
-    const promptText = `
+        }
+        promptText = `
 You are ${promptExpertise}.
 Your mission is to generate a single, high-quality question that is directly usable for student practice and assessment.
-
 OVERALL_EXAM_STYLE_GUIDANCE:
 ${examStyleGuidance}
-
 QUESTION_GENERATION_TASK:
 - Task Flavor ID: ${selectedTaskFlavor.id} (Target output type: ${selectedTaskFlavor.type})
-
 ${topicContextBlock}
-
 ${outputFormatInstructions}
-
 FINAL_INSTRUCTION: Review your generated JSON carefully to ensure it is valid, adheres to ALL instructions, and all text is in the specified language: ${questionLanguage}. The question must be directly derivable from the provided "Detailed Content/Sub-topic for Question Generation".
 `;
+    } // نهاية البرومبت الافتراضي
 
     console.log(`[AI_GEN_PRACTICE_Q_PROMPT_INFO] Calling Gemini for ${questionTypeToGenerate} in ${questionLanguage}. Prompt length: ${promptText.length}. Topic: "${selectedLessonTitre}"`);
 
     let rawResponseBodyTextForErrorLogging = "";
     try {
-        const fetchOptions = {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: promptText }] }],
-                generationConfig: { temperature: 0.6, topP: 0.95, topK: 40, maxOutputTokens: 2048, responseMimeType: "application/json" }, // أضفنا responseMimeType
-                safetySettings: [
-                    { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                    { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                    { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                    { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                ]
-            }),
-        };
-        const response = await fetch(currentGeminiApiUrl, fetchOptions);
-        rawResponseBodyTextForErrorLogging = await response.text();
+        // استخدام fetchGeminiWithConfig من promptHelpers
+        rawResponseBodyTextForErrorLogging = await fetchGeminiWithConfig(promptText, {
+            temperature: 0.6,
+            topP: 0.95,
+            topK: 40,
+            maxOutputTokens: 2048,
+            // responseMimeType: "application/json" يتم تعيينه داخل fetchGeminiWithConfig
+        }, 'gemini-1.5-flash-latest'); // أو النموذج المفضل
 
-        if (!response.ok) {
-            console.error(`[AI_GEN_PRACTICE_Q_ERROR] Gemini API FAILED. Status: ${response.status}. Body: ${rawResponseBodyTextForErrorLogging.substring(0,500)}`);
-            throw new Error(`Gemini API request failed (Status: ${response.status}). Response: ${rawResponseBodyTextForErrorLogging.substring(0,100)}`);
-        }
-
-        // --- START IMPROVED JSON EXTRACTION FOR GENERATEAIQUESTION ---
+        // --- START IMPROVED JSON EXTRACTION (No changes needed here from your previous version if it works) ---
         let questionData;
         try {
-            console.log("[AI_GEN_PRACTICE_Q_DEBUG] Raw response body:", rawResponseBodyTextForErrorLogging);
-            const parsedJsonResponse = JSON.parse(rawResponseBodyTextForErrorLogging);
-            if (parsedJsonResponse.question && parsedJsonResponse.type) { // تحقق من وجود حقول أساسية
-                questionData = parsedJsonResponse;
-            } else if (parsedJsonResponse.candidates && parsedJsonResponse.candidates[0]?.content?.parts?.[0]?.text) {
+            // console.log("[AI_GEN_PRACTICE_Q_DEBUG] Raw response body:", rawResponseBodyTextForErrorLogging);
+            const parsedJsonResponse = JSON.parse(rawResponseBodyTextForErrorLogging); // محاولة التحليل المباشر أولاً
+            if (parsedJsonResponse.candidates && parsedJsonResponse.candidates[0]?.content?.parts?.[0]?.text) {
                 let aiTextContent = parsedJsonResponse.candidates[0].content.parts[0].text;
-                console.log("[AI_GEN_PRACTICE_Q_DEBUG] Text content from Gemini structure:", aiTextContent);
+                // console.log("[AI_GEN_PRACTICE_Q_DEBUG] Text content from Gemini structure:", aiTextContent);
                 const markdownMatch = aiTextContent.match(/```(?:json)?\s*([\s\S]*?)\s*```/s);
                 if (markdownMatch && markdownMatch[1]) {
                     aiTextContent = markdownMatch[1].trim();
@@ -270,23 +277,27 @@ FINAL_INSTRUCTION: Review your generated JSON carefully to ensure it is valid, a
                 questionData = JSON.parse(aiTextContent);
             } else if (parsedJsonResponse.promptFeedback?.blockReason) {
                  throw new Error(`AI prompt blocked. Reason: ${parsedJsonResponse.promptFeedback.blockReason}`);
-            } else {
+            } else if (Object.keys(parsedJsonResponse).length > 0 && parsedJsonResponse.question && parsedJsonResponse.type) {
+                // إذا كان JSON مباشر وليس بنية Gemini ويحتوي على الحقول الأساسية
+                questionData = parsedJsonResponse;
+            }
+             else {
                  throw new Error("Unexpected API response structure after initial parse for question generation.");
             }
         } catch (initialParseError) {
-            console.warn(`[AI_GEN_PRACTICE_Q_WARN] Initial JSON.parse failed ('${initialParseError.message}'). Attempting extractCleanJsonString from raw text: ${rawResponseBodyTextForErrorLogging.substring(0,100)}...`);
+            // console.warn(`[AI_GEN_PRACTICE_Q_WARN] Initial JSON.parse failed ('${initialParseError.message}'). Attempting extractCleanJsonString from raw text: ${rawResponseBodyTextForErrorLogging.substring(0,100)}...`);
             try {
-                const cleanJsonString = extractCleanJsonString(rawResponseBodyTextForErrorLogging);
+                const cleanJsonString = extractCleanJsonString(rawResponseBodyTextForErrorLogging); // استخدام الدالة من shared
                 questionData = JSON.parse(cleanJsonString);
-                console.log("[AI_GEN_PRACTICE_Q_DEBUG] Successfully parsed using extractCleanJsonString fallback.");
+                // console.log("[AI_GEN_PRACTICE_Q_DEBUG] Successfully parsed using extractCleanJsonString fallback.");
             } catch (fallbackParseError) {
                 console.error(`[AI_GEN_PRACTICE_Q_JSON_EXTRACT_FAIL_FINAL] Failed to extract or parse JSON. Error: ${fallbackParseError.message}. Raw response: ${rawResponseBodyTextForErrorLogging.substring(0,500)}`);
-                throw new Error(`Failed to parse AI response as JSON: ${fallbackParseError.message}`);
+                throw new Error(`Failed to parse AI response as JSON: ${fallbackParseError.message}. Response: ${rawResponseBodyTextForErrorLogging.substring(0,100)}`);
             }
         }
         // --- END IMPROVED JSON EXTRACTION ---
 
-
+        // --- VALIDATION (No changes needed here from your previous version if it works) ---
         if (!questionData.question || String(questionData.question).trim() === '') { throw new Error(`Generated JSON missing or empty 'question'.`); }
         if (!questionData.type || (questionData.type !== "mcq" && questionData.type !== "free_text")) { throw new Error(`Generated JSON invalid 'type'.`); }
         if (questionData.type === "mcq") {
@@ -300,8 +311,8 @@ FINAL_INSTRUCTION: Review your generated JSON carefully to ensure it is valid, a
             if (!optsLower.includes(caLower)) {
                 console.warn(`[AI_VALIDATION_WARN_MCQ_ANSWER_MISMATCH] Correct answer "${questionData.correctAnswer}" not exactly in options. AI's options: [${questionData.options.join(' | ')}]. Using AI's answer.`);
             }
-        } else {
-            questionData.options = [];
+        } else { // free_text
+            questionData.options = []; // تأكد من أن الخيارات فارغة للنص الحر
             if (questionData.correctAnswer === undefined || questionData.correctAnswer === null || typeof questionData.correctAnswer !== 'string') {
                 console.warn(`[AI_VALIDATION_WARN_FREETEXT_NO_ANSWER] Free text question generated without a 'correctAnswer'. Setting to empty string.`);
                 questionData.correctAnswer = "";
@@ -309,41 +320,49 @@ FINAL_INSTRUCTION: Review your generated JSON carefully to ensure it is valid, a
         }
         if (typeof questionData.lesson !== 'string' || String(questionData.lesson).trim() === '') {
             console.warn(`[AI_VALIDATION_WARN_LESSON_FIELD] 'lesson' field missing or empty in AI response. Using fallback: "${lessonForJson}"`);
-            questionData.lesson = lessonForJson; // استخدم lessonForJson التي تم بناؤها بشكل صحيح
+            questionData.lesson = lessonForJson;
         } else {
-            // إذا أعاد AI قيمة لـ lesson، استخدمها ولكن تأكد أنها ليست JSON
             try {
-                JSON.parse(questionData.lesson); // محاولة تحليلها كـ JSON
-                // إذا نجح التحليل، فهذا يعني أنها لا تزال JSON، استخدم lessonForJson بدلاً منها
-                console.warn(`[AI_VALIDATION_WARN_LESSON_IS_JSON] AI returned a JSON string for 'lesson'. Overriding with generated title: "${lessonForJson}"`);
+                JSON.parse(questionData.lesson);
+                console.warn(`[AI_VALIDATION_WARN_LESSON_IS_JSON] AI returned a JSON string for 'lesson'. Overriding with: "${lessonForJson}"`);
                 questionData.lesson = lessonForJson;
             } catch (e) {
-                // إذا فشل التحليل، فهذا جيد، إنها سلسلة نصية عادية، يمكننا استخدامها
                 questionData.lesson = String(questionData.lesson).trim();
             }
         }
-
+        // --- END VALIDATION ---
 
         console.log(`[AI_GEN_PRACTICE_Q_SUCCESS] Data generated and validated (${questionData.type}): "${String(questionData.question).substring(0, 50)}..." Lesson: "${questionData.lesson}"`);
         return {
             question: String(questionData.question).trim(),
             options: questionData.options ? questionData.options.map(opt => String(opt).trim()) : [],
             correctAnswer: String(questionData.correctAnswer).trim(),
-            lesson: questionData.lesson, // استخدام قيمة lesson التي تم التحقق منها
+            lesson: questionData.lesson,
             type: questionData.type,
         };
 
     } catch (error) {
         console.error(`[AI_GEN_PRACTICE_Q_FATAL_OUTER] Critical error during AI question generation: ${error.message}. Raw AI Response: ${rawResponseBodyTextForErrorLogging.substring(0,500)}`, error.stack);
-        throw new Error(`AI Practice Question Generation Failed: ${error.message}`);
+        // لا ترمي الخطأ مرة أخرى إذا كان من fetchGeminiWithConfig، لأنه تم تسجيله بالفعل هناك.
+        // لكن إذا كان الخطأ من مكان آخر (مثل التحقق من الصحة)، يجب رميه.
+        if (!error.message.includes("Gemini API request failed")) { // تحقق بسيط
+             throw new Error(`AI Practice Question Generation Failed: ${error.message}`);
+        }
+        // إذا كان الخطأ من Gemini API، فقد يكون من الأفضل إرجاع null أو كائن خطأ محدد
+        // بدلاً من رمي خطأ عام، للسماح لوحدة التحكم بالتعامل معه بشكل أكثر رشاقة.
+        // حاليًا، controller يتوقع خطأ.
+        throw error; // أو throw new Error(...)
     }
 };
 
-// الدوال الأخرى (validateFreeTextAnswerWithAI, generateHintWithAI, generateDetailedAnswerWithAI) تبقى كما هي.
+// --- الدوال الأخرى (validateFreeTextAnswerWithAI, generateHintWithAI, generateDetailedAnswerWithAI) تبقى كما هي حاليًا ---
+// يمكننا تعديلها لاحقًا لتستخدم برومبتات ديناميكية إذا لزم الأمر.
 
 const validateFreeTextAnswerWithAI = async (originalQuestionText, userAnswerText, subjectNameForPrompt, questionLanguage = "fr") => {
+    // ... (الكود الحالي لهذه الدالة يبقى كما هو) ...
+    // ... (يمكننا لاحقًا جعلها تستخدم loadPromptModule إذا أردنا تخصيص هذا البرومبت أيضًا) ...
     const currentGeminiApiUrl = setGeminiApiUrl('gemini-1.5-flash-latest');
-    console.log(`[AI_VALIDATE_START] Validating: Q="${originalQuestionText.substring(0,50)}...", A="${userAnswerText.substring(0,50)}...", Subj='${subjectNameForPrompt}', Lang='${questionLanguage}' using URL: ${currentGeminiApiUrl}`);
+    // console.log(`[AI_VALIDATE_START] Validating: Q="${originalQuestionText.substring(0,50)}...", A="${userAnswerText.substring(0,50)}...", Subj='${subjectNameForPrompt}', Lang='${questionLanguage}' using URL: ${currentGeminiApiUrl}`);
     if (!GEMINI_API_KEY || !currentGeminiApiUrl) {
         console.error("[AI_VALIDATE_FATAL] GEMINI_API_KEY is missing or geminiApiUrl not set.");
         throw new Error("AI Service configuration error: API Key or URL is missing.");
@@ -372,45 +391,26 @@ The format must be EXACTLY:
 `;
     let rawResponseBodyTextForErrorLogging = "";
     try {
-        const response = await fetch(currentGeminiApiUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: promptText }] }],
-                generationConfig: { temperature: 0.2, topP: 0.9, topK: 30, maxOutputTokens: 512, responseMimeType: "application/json" },
-                safetySettings: [
-                    { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                    { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                    { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                    { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                ]
-            }),
-        });
-        const responseBodyText = await response.text();
-        rawResponseBodyTextForErrorLogging = responseBodyText;
-
-        if (!response.ok) {
-             console.error(`[AI_VALIDATE_ERROR] Gemini API request FAILED. Status: ${response.status}. Body: ${responseBodyText.substring(0,500)}`);
-             throw new Error(`Gemini API request for validation failed with status ${response.status}. Response: ${responseBodyText.substring(0,100)}`);
-        }
+        rawResponseBodyTextForErrorLogging = await fetchGeminiWithConfig(promptText, {
+            temperature: 0.2, topP: 0.9, topK: 30, maxOutputTokens: 512,
+        }, 'gemini-1.5-flash-latest');
         
         let validationData;
         try {
-            const parsedJsonResponse = JSON.parse(responseBodyText);
-            if (typeof parsedJsonResponse.isValid === 'boolean' && typeof parsedJsonResponse.feedback === 'string') {
-                validationData = parsedJsonResponse;
-            } else if (parsedJsonResponse.candidates && parsedJsonResponse.candidates[0]?.content?.parts?.[0]?.text) {
+            const parsedJsonResponse = JSON.parse(rawResponseBodyTextForErrorLogging);
+             if (parsedJsonResponse.candidates && parsedJsonResponse.candidates[0]?.content?.parts?.[0]?.text) {
                 let aiTextContent = parsedJsonResponse.candidates[0].content.parts[0].text;
                 const markdownMatch = aiTextContent.match(/```(?:json)?\s*([\s\S]*?)\s*```/s);
                 if (markdownMatch && markdownMatch[1]) { aiTextContent = markdownMatch[1].trim(); }
                 validationData = JSON.parse(aiTextContent);
+            } else if (typeof parsedJsonResponse.isValid === 'boolean' && typeof parsedJsonResponse.feedback === 'string') {
+                validationData = parsedJsonResponse;
             } else { throw new Error("Unexpected API structure for validation response."); }
         } catch (e) {
-            console.warn(`[AI_VALIDATE_WARN] Initial JSON parse/extract failed. Attempting extractCleanJsonStringShared. Raw: ${responseBodyText.substring(0,100)}`);
-            const cleanJsonString = extractCleanJsonString(responseBodyText); // استخدام الدالة من نفس الملف
+            // console.warn(`[AI_VALIDATE_WARN] Initial JSON parse/extract failed. Attempting extractCleanJsonStringShared. Raw: ${rawResponseBodyTextForErrorLogging.substring(0,100)}`);
+            const cleanJsonString = extractCleanJsonString(rawResponseBodyTextForErrorLogging); // استخدام الدالة من نفس الملف
             validationData = JSON.parse(cleanJsonString);
         }
-
 
         if (typeof validationData.isValid !== 'boolean' || typeof validationData.feedback !== 'string') {
             console.error("[AI_VALIDATE_ERROR_MALFORMED] Validation JSON from AI is malformed. Data:", validationData);
@@ -420,16 +420,17 @@ The format must be EXACTLY:
     } catch (error) {
         if (error instanceof SyntaxError && error.message.includes("JSON")) {
              console.error(`[AI_VALIDATE_JSON_PARSE_ERROR_FINAL] Failed to parse final JSON. Error: ${error.message}. Raw Body: "${rawResponseBodyTextForErrorLogging.substring(0,300)}"`);
-        } else {
+        } else if (!error.message.includes("Gemini API request failed")){ // لا تسجل الخطأ مرتين
             console.error(`[AI_VALIDATE_FATAL_OUTER] Critical error during answer validation: ${error.message}`, error.stack);
         }
-        throw error; // Re-throw to be caught by the controller
+        throw error;
     }
 };
 
 const generateHintWithAI = async (questionText, subjectNameForPrompt, hintLanguage = "ar") => {
+    // ... (الكود الحالي لهذه الدالة يبقى كما هو) ...
     const currentGeminiApiUrl = setGeminiApiUrl('gemini-1.5-flash-latest');
-    console.log(`[AI_HINT_START] Generating hint for: Q="${questionText.substring(0,50)}...", Subj='${subjectNameForPrompt}', Lang='${hintLanguage}' using URL: ${currentGeminiApiUrl}`);
+    // console.log(`[AI_HINT_START] Generating hint for: Q="${questionText.substring(0,50)}...", Subj='${subjectNameForPrompt}', Lang='${hintLanguage}' using URL: ${currentGeminiApiUrl}`);
     if (!GEMINI_API_KEY || !currentGeminiApiUrl) {
          console.error("[AI_HINT_FATAL] Missing API Key/URL for hint generation.");
          throw new Error("AI Service configuration error: API Key or URL is missing.");
@@ -454,41 +455,24 @@ Respond ONLY with the JSON object, enclosed in \`\`\`json ... \`\`\`, without an
 `;
     let rawResponseBodyTextForErrorLogging = "";
     try {
-        const response = await fetch(currentGeminiApiUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: promptText }] }],
-                generationConfig: { temperature: 0.7, topP: 0.9, topK: 35, maxOutputTokens: 256, responseMimeType: "application/json" },
-                safetySettings: [
-                    { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                    { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                    { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                    { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                ]
-            }),
-        });
-        const responseBodyText = await response.text();
-        rawResponseBodyTextForErrorLogging = responseBodyText;
-        if (!response.ok) {
-            console.error(`[AI_HINT_ERROR] Gemini API hint request failed. Status: ${response.status}. Body: ${responseBodyText.substring(0,500)}`);
-            throw new Error(`Gemini API hint request failed. Status: ${response.status}. Response: ${responseBodyText.substring(0,100)}`);
-        }
+        rawResponseBodyTextForErrorLogging = await fetchGeminiWithConfig(promptText, {
+            temperature: 0.7, topP: 0.9, topK: 35, maxOutputTokens: 256,
+        }, 'gemini-1.5-flash-latest');
         
         let hintData;
         try {
-            const parsedJsonResponse = JSON.parse(responseBodyText);
-            if (typeof parsedJsonResponse.hint === 'string') {
-                hintData = parsedJsonResponse;
-            } else if (parsedJsonResponse.candidates && parsedJsonResponse.candidates[0]?.content?.parts?.[0]?.text) {
+            const parsedJsonResponse = JSON.parse(rawResponseBodyTextForErrorLogging);
+            if (parsedJsonResponse.candidates && parsedJsonResponse.candidates[0]?.content?.parts?.[0]?.text) {
                 let aiTextContent = parsedJsonResponse.candidates[0].content.parts[0].text;
                 const markdownMatch = aiTextContent.match(/```(?:json)?\s*([\s\S]*?)\s*```/s);
                 if (markdownMatch && markdownMatch[1]) { aiTextContent = markdownMatch[1].trim(); }
                 hintData = JSON.parse(aiTextContent);
+            } else if (typeof parsedJsonResponse.hint === 'string') {
+                hintData = parsedJsonResponse;
             } else { throw new Error("Unexpected API structure for hint response."); }
         } catch (e) {
-            console.warn(`[AI_HINT_WARN] Initial JSON parse/extract failed. Attempting extractCleanJsonStringShared. Raw: ${responseBodyText.substring(0,100)}`);
-            const cleanJsonString = extractCleanJsonString(responseBodyText); // استخدام الدالة من نفس الملف
+            // console.warn(`[AI_HINT_WARN] Initial JSON parse/extract failed. Attempting extractCleanJsonStringShared. Raw: ${rawResponseBodyTextForErrorLogging.substring(0,100)}`);
+            const cleanJsonString = extractCleanJsonString(rawResponseBodyTextForErrorLogging);
             hintData = JSON.parse(cleanJsonString);
         }
 
@@ -500,16 +484,17 @@ Respond ONLY with the JSON object, enclosed in \`\`\`json ... \`\`\`, without an
     } catch (error) {
         if (error instanceof SyntaxError && error.message.includes("JSON")) {
              console.error(`[AI_HINT_JSON_PARSE_ERROR_FINAL] Failed to parse final JSON. Error: ${error.message}. Raw Body: "${rawResponseBodyTextForErrorLogging.substring(0,300)}"`);
-        } else {
+        } else if (!error.message.includes("Gemini API request failed")){
             console.error(`[AI_HINT_FATAL_OUTER] Error generating hint: ${error.message}`, error.stack);
         }
-        throw error; // Re-throw
+        throw error;
     }
 };
 
 const generateDetailedAnswerWithAI = async (questionText, questionType, subjectNameForPrompt, explanationLanguage = "ar", correctAnswerDB = null, userAnswer = null) => {
+    // ... (الكود الحالي لهذه الدالة يبقى كما هو) ...
     const currentGeminiApiUrl = setGeminiApiUrl('gemini-1.5-flash-latest');
-    console.log(`[AI_DETAILED_START] Gen detailed answer. Q="${questionText.substring(0,50)}...", Type='${questionType}', Subj='${subjectNameForPrompt}', Lang='${explanationLanguage}' using URL ${currentGeminiApiUrl}`);
+    // console.log(`[AI_DETAILED_START] Gen detailed answer. Q="${questionText.substring(0,50)}...", Type='${questionType}', Subj='${subjectNameForPrompt}', Lang='${explanationLanguage}' using URL ${currentGeminiApiUrl}`);
     if (!GEMINI_API_KEY || !currentGeminiApiUrl) {
         console.error("[AI_DETAILED_FATAL] Missing API Key/URL for detailed answer generation.");
         throw new Error("AI Service configuration error: API Key or URL is missing.");
@@ -541,44 +526,26 @@ Respond ONLY with the JSON object, enclosed in \`\`\`json ... \`\`\`, without an
 `;
     let rawResponseBodyTextForErrorLogging = "";
     try {
-        const response = await fetch(currentGeminiApiUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: promptText }] }],
-                generationConfig: { temperature: 0.5, topP: 0.95, topK: 40, maxOutputTokens: 3072, responseMimeType: "application/json" },
-                safetySettings: [
-                    { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                    { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                    { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                    { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                ]
-            }),
-        });
-        const responseBodyText = await response.text();
-        rawResponseBodyTextForErrorLogging = responseBodyText;
-        if (!response.ok) {
-            console.error(`[AI_DETAILED_ERROR] Gemini API detailed answer request failed. Status: ${response.status}. Body: ${responseBodyText.substring(0,500)}`);
-            throw new Error(`Gemini API detailed answer request failed. Status: ${response.status}. Response: ${responseBodyText.substring(0,100)}`);
-        }
-        
+        rawResponseBodyTextForErrorLogging = await fetchGeminiWithConfig(promptText, {
+            temperature: 0.5, topP: 0.95, topK: 40, maxOutputTokens: 3072,
+        }, 'gemini-1.5-flash-latest');
+
         let explanationData;
         try {
-            const parsedJsonResponse = JSON.parse(responseBodyText);
-            if (typeof parsedJsonResponse.detailedExplanation === 'string') {
-                explanationData = parsedJsonResponse;
-            } else if (parsedJsonResponse.candidates && parsedJsonResponse.candidates[0]?.content?.parts?.[0]?.text) {
+            const parsedJsonResponse = JSON.parse(rawResponseBodyTextForErrorLogging);
+            if (parsedJsonResponse.candidates && parsedJsonResponse.candidates[0]?.content?.parts?.[0]?.text) {
                 let aiTextContent = parsedJsonResponse.candidates[0].content.parts[0].text;
                 const markdownMatch = aiTextContent.match(/```(?:json)?\s*([\s\S]*?)\s*```/s);
                 if (markdownMatch && markdownMatch[1]) { aiTextContent = markdownMatch[1].trim(); }
                 explanationData = JSON.parse(aiTextContent);
+            } else if (typeof parsedJsonResponse.detailedExplanation === 'string') {
+                explanationData = parsedJsonResponse;
             } else { throw new Error("Unexpected API structure for detailed answer response."); }
         } catch (e) {
-            console.warn(`[AI_DETAILED_WARN] Initial JSON parse/extract failed. Attempting extractCleanJsonStringShared. Raw: ${responseBodyText.substring(0,100)}`);
-            const cleanJsonString = extractCleanJsonString(responseBodyText); // استخدام الدالة من نفس الملف
+            // console.warn(`[AI_DETAILED_WARN] Initial JSON parse/extract failed. Attempting extractCleanJsonStringShared. Raw: ${rawResponseBodyTextForErrorLogging.substring(0,100)}`);
+            const cleanJsonString = extractCleanJsonString(rawResponseBodyTextForErrorLogging);
             explanationData = JSON.parse(cleanJsonString);
         }
-
 
         if (typeof explanationData.detailedExplanation !== 'string' || explanationData.detailedExplanation.trim() === '') {
             console.error("[AI_DETAILED_ERROR_MALFORMED] Detailed explanation JSON from AI is malformed or empty. Data:", explanationData);
@@ -588,10 +555,10 @@ Respond ONLY with the JSON object, enclosed in \`\`\`json ... \`\`\`, without an
     } catch (error) {
         if (error instanceof SyntaxError && error.message.includes("JSON")) {
              console.error(`[AI_DETAILED_JSON_PARSE_ERROR_FINAL] Failed to parse final JSON. Error: ${error.message}. Raw Body: "${rawResponseBodyTextForErrorLogging.substring(0,300)}"`);
-        } else {
+        } else if (!error.message.includes("Gemini API request failed")){
             console.error(`[AI_DETAILED_FATAL_OUTER] Error generating detailed answer: ${error.message}`, error.stack);
         }
-        throw error; // Re-throw
+        throw error;
     }
 };
 
