@@ -5,8 +5,7 @@ const TimedExamAttempt = require('../models/TimedExamAttempt');
 const AcademicLevel = require('../models/AcademicLevel');
 const Track = require('../models/Track');
 const Subject = require('../models/Subject');
-
-// *** التعديل هنا ليعكس اسم الملف الصحيح ***
+const { gradeExamAttemptByAI } = require('../services/aiGradingService');
 const { generateFullExamSetData } = require('../utils/aiTimedExamGenerator');
 
 const mapApiDifficultyToDb = (apiValue) => {
@@ -109,12 +108,11 @@ const startExam = asyncHandler(async (req, res) => {
                     text: sq.text,
                     points: sq.points,
                     difficultyOrder: sq.difficultyOrder,
+                    question_format: sq.question_format, // تأكد من حفظ هذا الحقل
+                    correct_answer: sq.correct_answer, // تأكد من حفظ هذا الحقل
+                    correct_answer_details: sq.correct_answer_details, // تأكد من حفظ هذا الحقل
                     category: sq.category,
-                    type: sq.type,
-                    statements: sq.statements,
-                    sentences: sq.sentences,
-                    prompts: sq.prompts,
-                    isProductionEcrite: sq.isProductionEcrite,
+                    type: sq.type
                 })),
                 orderInExam: orderInExam,
                 problemTotalPossibleRawScore: p.totalPoints,
@@ -144,12 +142,9 @@ const startExam = asyncHandler(async (req, res) => {
             text: sq.text,
             points: sq.points,
             orderInProblem: sq.difficultyOrder,
+            question_format: sq.question_format,
             category: sq.category,
-            type: sq.type,
-            statements: sq.statements,
-            sentences: sq.sentences,
-            prompts: sq.prompts,
-            isProductionEcrite: sq.isProductionEcrite,
+            type: sq.type
         }))
     }));
 
@@ -169,116 +164,88 @@ const submitExam = asyncHandler(async (req, res) => {
     const { problemAnswers } = req.body;
     const userId = req.user._id.toString();
 
+    // التحقق من صحة الطلب والعثور على المحاولة
     if (!mongoose.Types.ObjectId.isValid(attemptId)) {
-        res.status(400); throw new Error('Invalid exam attempt ID format.');
+        res.status(400);
+        throw new Error('Invalid exam attempt ID format.');
     }
-
     const examAttempt = await TimedExamAttempt.findById(attemptId);
-
     if (!examAttempt) {
-        res.status(404); throw new Error('Exam attempt not found.');
+        res.status(404);
+        throw new Error('Exam attempt not found.');
     }
     if (examAttempt.user.toString() !== userId) {
-        res.status(403); throw new Error('Not authorized to submit this exam attempt.');
+        res.status(403);
+        throw new Error('Not authorized.');
     }
     if (examAttempt.status !== 'in-progress') {
-        res.status(400); throw new Error(`Exam cannot be submitted, status is: ${examAttempt.status}.`);
+        res.status(400);
+        throw new Error(`Exam already submitted.`);
     }
 
+    // --- START: تعديل منطق تسليم الإجابات والتصحيح ---
+
+    // الخطوة 1: تسجيل وقت نهاية الامتحان وتخزين إجابات المستخدم
     examAttempt.endTime = new Date();
-    let overallRawScore = 0;
-    let gradingFailedForSome = false;
 
     if (problemAnswers && Array.isArray(problemAnswers)) {
         for (const submittedProblem of problemAnswers) {
-            const problemDB = examAttempt.problems.find(p =>
-                p.problemId === submittedProblem.problemId &&
-                p.orderInExam === submittedProblem.problemOrderInExam
-            );
+            const problemDB = examAttempt.problems.find(p => p.problemId === submittedProblem.problemId);
+            if (!problemDB) continue; // تخطي إذا لم يتم العثور على المسألة
 
-            if (!problemDB) {
-                console.warn(`[EXAM_CTRL_SUBMIT] Submitted problem (Order: ${submittedProblem.problemOrderInExam}, ID: ${submittedProblem.problemId}) not found in DB attempt ${attemptId}. Skipping.`);
-                continue;
-            }
-
-            let currentProblemScore = 0;
+            // إفراغ الإجابات القديمة إن وجدت وإضافة الإجابات الجديدة
             problemDB.subQuestionAnswers = [];
 
             if (submittedProblem.subQuestionAnswers && Array.isArray(submittedProblem.subQuestionAnswers)) {
                 for (const sqAnsInput of submittedProblem.subQuestionAnswers) {
                     const originalSubQuestion = problemDB.subQuestionsData.find(osq => osq.difficultyOrder === sqAnsInput.orderInProblem);
+                    if (!originalSubQuestion) continue; // تخطي إذا لم يتم العثور على السؤال الأصلي
 
-                    let awardedPointsForSq = 0;
-                    let feedbackForSq = "Answer recorded.";
-
-                    if (originalSubQuestion && originalSubQuestion.type === 'free_text' && sqAnsInput.userAnswer && typeof sqAnsInput.userAnswer === 'string') {
-                        try {
-                            const subjectDoc = await Subject.findById(examAttempt.subject).select('name language').lean();
-                            const subjectNameForPrompt = subjectDoc ? subjectDoc.name : "General";
-                            const questionLanguage = subjectDoc ? (subjectDoc.language || 'ar') : 'ar';
-
-                            const validationResult = await require('../utils/aiGeneralQuestionGenerator').validateFreeTextAnswerWithAI(
-                                originalSubQuestion.text,
-                                sqAnsInput.userAnswer,
-                                subjectNameForPrompt,
-                                questionLanguage
-                            );
-                            if (validationResult.isValid) {
-                                awardedPointsForSq = originalSubQuestion.points;
-                            }
-                            feedbackForSq = validationResult.feedback;
-                        } catch (aiError) {
-                            console.error(`AI grading error for sub-question in attempt ${attemptId}: ${aiError.message}`);
-                            feedbackForSq = "Error during AI grading for this sub-question.";
-                            gradingFailedForSome = true;
-                        }
-                    } else {
-                         feedbackForSq = "Automated grading for this sub-question type is not yet fully implemented.";
-                    }
-
-                    currentProblemScore += awardedPointsForSq;
-
+                    // تخزين إجابة المستخدم فقط. سيتم حساب النقاط لاحقاً.
                     problemDB.subQuestionAnswers.push({
-                        subQuestionText: originalSubQuestion ? originalSubQuestion.text : "N/A",
+                        subQuestionText: originalSubQuestion.text,
                         subQuestionOrderInProblem: sqAnsInput.orderInProblem,
-                        subQuestionPoints: originalSubQuestion ? originalSubQuestion.points : 0,
+                        subQuestionPoints: originalSubQuestion.points,
                         userAnswer: sqAnsInput.userAnswer || null,
-                        awardedPoints: awardedPointsForSq,
-                        aiFeedback: feedbackForSq,
+                        awardedPoints: 0, // القيمة الأولية، سيتم تحديثها بواسطة خدمة التصحيح
+                        aiFeedback: "Pending grading.", // الحالة الأولية
                     });
                 }
             }
-            problemDB.problemRawScore = Math.round(currentProblemScore * 100) / 100;
-            overallRawScore += problemDB.problemRawScore;
         }
     }
 
-    examAttempt.overallRawScore = Math.round(overallRawScore * 100) / 100;
-    if (examAttempt.overallTotalPossibleRawScore > 0) {
-        examAttempt.overallScoreOutOf20 = Math.round((examAttempt.overallRawScore / examAttempt.overallTotalPossibleRawScore) * 20 * 100) / 100;
-    } else {
-        examAttempt.overallScoreOutOf20 = 0;
-    }
-
-    const timeTakenSeconds = (examAttempt.endTime.getTime() - examAttempt.startTime.getTime()) / 1000;
-    if (timeTakenSeconds > (examAttempt.timeLimitMinutes * 60) + 15) {
-        examAttempt.status = 'timed-out';
-    } else if (gradingFailedForSome) {
-        examAttempt.status = 'grading-failed';
-    } else {
-        examAttempt.status = 'completed';
-    }
-
+    // الخطوة 2: حفظ المحاولة مع جميع إجابات المستخدم قبل بدء عملية التصحيح
     await examAttempt.save();
+    console.log(`[EXAM_SUBMIT] Attempt ${attemptId} saved with user answers. Invoking AI grading service.`);
 
-    console.log(`[EXAM_CTRL_SUBMIT_SUCCESS] Exam attempt ${attemptId} submitted. Score: ${examAttempt.overallRawScore}/${examAttempt.overallTotalPossibleRawScore}. Status: ${examAttempt.status}`);
+    // الخطوة 3: استدعاء خدمة التصحيح الآلي مرة واحدة للمحاولة بأكملها
+    try {
+        const gradedAttempt = await gradeExamAttemptByAI(attemptId);
 
-    res.status(200).json({
-        message: 'Exam submitted successfully.',
-        examAttemptId: examAttempt._id,
-        status: examAttempt.status,
-    });
+        console.log(`[EXAM_SUBMIT_SUCCESS] Attempt ${attemptId} submitted and graded. Score: ${gradedAttempt.overallRawScore}/${gradedAttempt.overallTotalPossibleRawScore}. Status: ${gradedAttempt.status}`);
+        res.status(200).json({
+            message: 'Exam submitted successfully and has been graded.',
+            examAttemptId: gradedAttempt._id,
+            status: gradedAttempt.status
+        });
+
+    } catch (gradingError) {
+        console.error(`[EXAM_SUBMIT_CATCH] AI grading process failed for attempt ${attemptId}: ${gradingError.message}`);
+        
+        // في حالة فشل خدمة التصحيح، يتم تحديث حالة المحاولة لتعكس ذلك
+        examAttempt.status = 'grading-failed';
+        await examAttempt.save();
+
+        res.status(500).json({
+            message: 'Exam submitted, but a critical error occurred during the automated grading process.',
+            examAttemptId: attemptId,
+            status: 'grading-failed'
+        });
+    }
+    // --- END: نهاية التعديل ---
 });
+
 
 // @desc    Get results for a timed exam attempt
 // @route   GET /api/exams/:attemptId/results
