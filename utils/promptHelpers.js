@@ -16,7 +16,7 @@ async function fetchGeminiWithConfig(promptText, generationConfig, modelType = '
         body: JSON.stringify({
             contents: [{ parts: [{ text: promptText }] }],
             generationConfig: {
-                temperature: 0.7,
+                temperature: 1.7,
                 maxOutputTokens: 4096,
                 responseMimeType: "application/json",
                 ...generationConfig,

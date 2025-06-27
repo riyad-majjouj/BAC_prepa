@@ -133,169 +133,115 @@ const generateFullExamSetData = async (academicLevelId, trackId, subjectId, exam
     const [levelDoc, trackDoc, subjectDoc] = await Promise.all([
         AcademicLevel.findById(academicLevelId).select('name').lean(),
         Track.findById(trackId).select('name').lean(),
-        Subject.findById(subjectId).select('name isCoreSubject').lean() // Assuming 'isCoreSubject' or similar flag exists
+        Subject.findById(subjectId).select('name isCoreSubject').lean()
     ]);
 
     if (!levelDoc || !trackDoc || !subjectDoc) {
-        console.error(`[FULL_EXAM_SET_DATA_ERROR] Academic entities not found. LevelId: ${academicLevelId}, TrackId: ${trackId}, SubjectId: ${subjectId}`);
         throw new Error('Academic entities not found. Cannot proceed with exam generation.');
     }
     
-    const academicLevelName = levelDoc.name; // e.g., "2BAC"
-    const trackName = trackDoc.name;         // e.g., "SPC", "SVT"
-    const subjectFileNameFromDB = subjectDoc.name; // e.g., "2BAC_spc_pc", "2BAC_svt_svt", "2BAC_sm_math", "1BAC_sx-sm_frensh"
-                                              // This is the name used for loading prompts and curriculum mapping
+    const academicLevelName = levelDoc.name;
+    const trackName = trackDoc.name;
+    const subjectFileNameFromDB = subjectDoc.name;
 
-    console.log(`[FULL_EXAM_SET_DATA_INIT] Level: ${academicLevelName}, Track: ${trackName}, Subject (DB Name): ${subjectFileNameFromDB}, Difficulty: ${examDifficultyApiValue}`);
+    console.log(`[EXAM_GEN_INIT] Level: ${academicLevelName}, Track: ${trackName}, Subject: ${subjectFileNameFromDB}, Difficulty: ${examDifficultyApiValue}`);
 
-    // Load prompt module using the subjectFileNameFromDB, as it's the key for specific configurations
     const customPromptModule = loadPromptModule(academicLevelName, trackName, subjectFileNameFromDB, 'exam');
-
     if (!customPromptModule) {
-        // Log more details to help diagnose
-        console.error(`[FULL_EXAM_SET_DATA_ERROR] Exam generation failed: Prompt module for Subject "${subjectFileNameFromDB}" (Level: ${academicLevelName}, Track: ${trackName}) not found.`);
-        console.error(`Attempted to load with core subject: ${getCoreSubjectName(subjectFileNameFromDB)}`);
-        throw new Error(`Exam generation failed: Prompt module for "${subjectFileNameFromDB}" not found.`);
+        throw new Error(`Exam prompt module for "${subjectFileNameFromDB}" not found.`);
     }
 
     const examConfig = customPromptModule.examConfig || {};
+    
+    // --- START: هذا هو الإصلاح الرئيسي ---
     let numberOfProblemsToGenerate;
     if (typeof examConfig.numberOfProblems === 'function') {
-        numberOfProblemsToGenerate = examConfig.numberOfProblems({ academicLevelName, trackName, subjectName: subjectFileNameFromDB, difficulty: examDifficultyApiValue });
+        // استدعاء الدالة للحصول على الرقم
+        numberOfProblemsToGenerate = examConfig.numberOfProblems(); 
     } else {
-        numberOfProblemsToGenerate = examConfig.numberOfProblems || 1; // Default to 1 if not specified
+        // استخدام القيمة مباشرة إذا كانت رقمًا
+        numberOfProblemsToGenerate = examConfig.numberOfProblems || 1;
     }
     
     if (numberOfProblemsToGenerate <= 0) {
-        console.warn(`[FULL_EXAM_SET_DATA_WARN] Number of problems to generate is ${numberOfProblemsToGenerate} for ${subjectFileNameFromDB}. Setting to 1.`);
+        console.warn(`[EXAM_GEN_WARN] Number of problems to generate is ${numberOfProblemsToGenerate}. Setting to 1.`);
         numberOfProblemsToGenerate = 1;
     }
+    
+    // الآن سيتم طباعة الرقم الصحيح في السجل
+    console.log(`[EXAM_GEN_START] Using config for "${subjectFileNameFromDB}". Generating ${numberOfProblemsToGenerate} problems.`);
+    // --- END: نهاية الإصلاح الرئيسي ---
 
-
-    console.log(`[FULL_EXAM_SET_DATA_START] Using config for "${subjectFileNameFromDB}". Generating ${numberOfProblemsToGenerate} problems.`);
-
-    // Load curriculum data using subjectFileNameFromDB
-    const curriculumData = loadCurriculumData(academicLevelName, trackName, subjectFileNameFromDB, true); // true for exam curriculum
-    let lessonsToGenerate = [];
-
+    const curriculumData = loadCurriculumData(academicLevelName, trackName, subjectFileNameFromDB, true);
     if (!curriculumData) {
-        throw new Error(`Curriculum data not found for subject "${subjectFileNameFromDB}" (Level: ${academicLevelName}, Track: ${trackName}). Check file path and name.`);
+        throw new Error(`Curriculum data not found for subject "${subjectFileNameFromDB}".`);
     }
 
-    const coreSubjectNameForLogic = getCoreSubjectName(subjectFileNameFromDB); // 'svt', 'pc', 'math' etc.
+    let lessonsToGenerate = [];
 
+    // الآن هذا المنطق سيعمل بشكل صحيح لأن numberOfProblemsToGenerate هو رقم
     if (Array.isArray(curriculumData)) {
         if (curriculumData.length === 0) {
             throw new Error(`Curriculum array for "${subjectFileNameFromDB}" is empty.`);
         }
         
-        // --- *** بداية التعديل لمنطق SVT و PC *** ---
-        if (coreSubjectNameForLogic === 'svt' && (trackName.toUpperCase() === 'SVT' || trackName.toUpperCase() === 'SM')) {
-            console.log(`[SVT_EXAM_LOGIC] Applying special lesson selection for SVT (${trackName}).`);
-            // Implement your specific SVT lesson selection logic here.
-            // This is an example: select a subset of lessons randomly.
-            // You might have chapters, units, or specific themes to pick from based on 'exam-curriculum-data/LEVEL/TRACK/svt.js'
-            if (curriculumData.length < numberOfProblemsToGenerate) {
-                console.warn(`[SVT_EXAM_LOGIC] Not enough unique lessons (${curriculumData.length}) in SVT curriculum for ${subjectFileNameFromDB} to generate ${numberOfProblemsToGenerate} problems. Using all available lessons and may repeat if necessary or generate fewer.`);
-                lessonsToGenerate = [...curriculumData]; // Take all if fewer than needed
-                // If you need exactly numberOfProblemsToGenerate and repetition is okay:
-                // while (lessonsToGenerate.length < numberOfProblemsToGenerate && curriculumData.length > 0) {
-                //    lessonsToGenerate.push(getRandomFromArray(curriculumData));
-                // }
-            } else {
-                const shuffledLessons = [...curriculumData].sort(() => 0.5 - Math.random());
-                lessonsToGenerate = shuffledLessons.slice(0, numberOfProblemsToGenerate);
-            }
-            if (lessonsToGenerate.length === 0 && curriculumData.length > 0) { // Fallback if custom logic failed but data exists
-                 console.warn('[SVT_EXAM_LOGIC] SVT custom logic resulted in zero lessons, falling back to random selection from available data.');
-                 const shuffledLessons = [...curriculumData].sort(() => 0.5 - Math.random());
-                 lessonsToGenerate = shuffledLessons.slice(0, Math.min(numberOfProblemsToGenerate, curriculumData.length));
-            }
-
-        } else if (coreSubjectNameForLogic === 'pc' && (trackName.toUpperCase() === 'SM' || trackName.toUpperCase() === 'SPC' || trackName.toUpperCase() === 'SVT')) { // Added SVT as PC is common
-            console.log(`[PC_EXAM_LOGIC] Applying special lesson selection for PC (${trackName}).`);
-            // Implement your specific PC lesson selection logic here.
-            // Example:
-            if (curriculumData.length < numberOfProblemsToGenerate) {
-                console.warn(`[PC_EXAM_LOGIC] Not enough unique lessons (${curriculumData.length}) in PC curriculum for ${subjectFileNameFromDB} to generate ${numberOfProblemsToGenerate} problems. Using all available lessons.`);
-                lessonsToGenerate = [...curriculumData];
-            } else {
-                const shuffledLessons = [...curriculumData].sort(() => 0.5 - Math.random());
-                lessonsToGenerate = shuffledLessons.slice(0, numberOfProblemsToGenerate);
-            }
-             if (lessonsToGenerate.length === 0 && curriculumData.length > 0) {
-                 console.warn('[PC_EXAM_LOGIC] PC custom logic resulted in zero lessons, falling back to random selection.');
-                 const shuffledLessons = [...curriculumData].sort(() => 0.5 - Math.random());
-                 lessonsToGenerate = shuffledLessons.slice(0, Math.min(numberOfProblemsToGenerate, curriculumData.length));
-            }
-        // --- *** نهاية التعديل لمنطق SVT و PC *** ---
+        if (curriculumData.length < numberOfProblemsToGenerate) {
+             console.warn(`[LESSON_SELECT_WARN] Not enough unique lessons (${curriculumData.length}) for ${subjectFileNameFromDB} to generate ${numberOfProblemsToGenerate} problems. Using all available unique lessons.`);
+             lessonsToGenerate = [...curriculumData];
         } else {
-            console.log(`[DEFAULT_ARRAY_LOGIC] Applying random lesson selection for subject: ${coreSubjectNameForLogic} (${subjectFileNameFromDB}).`);
-            if (curriculumData.length < numberOfProblemsToGenerate) {
-                 console.warn(`[DEFAULT_ARRAY_LOGIC] Not enough unique lessons (${curriculumData.length}) for ${subjectFileNameFromDB} to generate ${numberOfProblemsToGenerate} problems without repetition. Using all available unique lessons.`);
-                 lessonsToGenerate = [...curriculumData]; // Use all unique lessons
-                 // If repetition is allowed and strictly numberOfProblemsToGenerate is needed:
-                 // while (lessonsToGenerate.length < numberOfProblemsToGenerate && curriculumData.length > 0) {
-                 //    lessonsToGenerate.push(getRandomFromArray(curriculumData));
-                 // }
-            } else {
-                const shuffledLessons = [...curriculumData].sort(() => 0.5 - Math.random());
-                lessonsToGenerate = shuffledLessons.slice(0, numberOfProblemsToGenerate);
-            }
+            const shuffledLessons = [...curriculumData].sort(() => 0.5 - Math.random());
+            lessonsToGenerate = shuffledLessons.slice(0, numberOfProblemsToGenerate);
         }
 
     } else if (typeof curriculumData === 'object' && curriculumData !== null && Object.keys(curriculumData).length > 0) {
-        // This typically means the curriculum file itself is a single context/object rather than an array of lessons
-        console.log(`[OBJECT_CURRICULUM_LOGIC] Treating curriculum as a single context for subject: ${coreSubjectNameForLogic} (${subjectFileNameFromDB}). Generating ${numberOfProblemsToGenerate} problems from this single context.`);
-        // For each problem to generate, use the same curriculumData object as the "lesson" context
         for (let i = 0; i < numberOfProblemsToGenerate; i++) {
-            lessonsToGenerate.push(curriculumData); // Push the same object multiple times
+            lessonsToGenerate.push(curriculumData);
         }
     
     } else {
-        throw new Error(`Curriculum data for "${subjectFileNameFromDB}" is in an unsupported format or is empty after loading. Type: ${typeof curriculumData}`);
+        throw new Error(`Curriculum data for "${subjectFileNameFromDB}" is in an unsupported format or is empty.`);
     }
 
     if (lessonsToGenerate.length === 0) {
-        console.error(`[FULL_EXAM_SET_DATA_ERROR] Failed to select ANY lessons/contexts for exam generation (Subject: ${subjectFileNameFromDB}, Core: ${coreSubjectNameForLogic}).`);
-        console.error(`Curriculum data that was processed:`, curriculumData);
-        console.error(`Number of problems that were intended: ${numberOfProblemsToGenerate}`);
-        throw new Error(`Failed to select any lessons/context for exam generation (Subject: ${subjectFileNameFromDB}). Check curriculum data content, structure, and selection logic for ${coreSubjectNameForLogic}.`);
-    }
-    
-    if (lessonsToGenerate.length < numberOfProblemsToGenerate) {
-        console.warn(`[FULL_EXAM_SET_DATA_WARN] Selected ${lessonsToGenerate.length} lessons/contexts, but ${numberOfProblemsToGenerate} problems were requested for ${subjectFileNameFromDB}. The exam will have fewer problems.`);
+        throw new Error(`Failed to select any lessons/context for exam generation (Subject: ${subjectFileNameFromDB}).`);
     }
 
-
-    console.log(`[FULL_EXAM_SET_DATA] Final list of ${lessonsToGenerate.length} lessons/contexts for generation (Targeting ${numberOfProblemsToGenerate} problems):`, 
-        lessonsToGenerate.map((l, idx) =>  `${idx + 1}: ${l.titreLecon || `Context for ${coreSubjectNameForLogic}`}`)
-    );
+    // ... (باقي الدالة يبقى كما هو مع حلقة إعادة المحاولة) ...
     
     const generatedProblemsDataArray = [];
-    let problemIndex = 0; // This is the index for the problems in the exam
-    // Iterate over the selected lessons/contexts to generate problems
-    for (const lessonOrContext of lessonsToGenerate) {
-        if (generatedProblemsDataArray.length >= numberOfProblemsToGenerate) break; // Stop if we've reached the target number
+    const MAX_PROBLEM_GENERATION_RETRIES = 2;
 
-        try {
-            console.log(`[FULL_EXAM_SET_DATA_ITERATION] Generating problem ${problemIndex + 1} using lesson/context: "${lessonOrContext.titreLecon || 'General Context'}"`);
-            const problemData = await generateSingleAIProblemSetDataForLesson(
-                academicLevelName, 
-                trackName, 
-                subjectFileNameFromDB, // Pass the full DB subject name
-                examDifficultyApiValue, 
-                lessonOrContext, // This is the specific lesson/context for this problem
-                problemIndex
-            );
-            generatedProblemsDataArray.push(problemData);
-            problemIndex++;
-            if (problemIndex < lessonsToGenerate.length) { // Add delay only if there are more problems to generate
-                 await delay(1500); 
+    for (let i = 0; i < lessonsToGenerate.length; i++) {
+        const lessonOrContext = lessonsToGenerate[i];
+        let problemGenerated = false;
+        let attempt = 0;
+
+        while (!problemGenerated && attempt <= MAX_PROBLEM_GENERATION_RETRIES) {
+            attempt++;
+            try {
+                if (attempt > 1) {
+                    console.log(`[EXAM_GEN_RETRY] Retrying generation for problem ${i + 1} (Attempt ${attempt})...`);
+                    await delay(2000);
+                }
+                
+                console.log(`[EXAM_GEN_ITERATION] Generating problem ${i + 1} using context: "${lessonOrContext.titreLecon || 'General Context'}"`);
+                
+                const problemData = await generateSingleAIProblemSetDataForLesson(
+                    academicLevelName, trackName, subjectFileNameFromDB, examDifficultyApiValue, lessonOrContext, i
+                );
+                
+                generatedProblemsDataArray.push(problemData);
+                problemGenerated = true;
+
+            } catch (error) {
+                console.error(`[EXAM_GEN_ATTEMPT_FAIL] Attempt ${attempt} failed for problem ${i + 1}. Error: ${error.message}`);
+                if (attempt > MAX_PROBLEM_GENERATION_RETRIES) {
+                    console.error(`[EXAM_GEN_FINAL_FAIL] All attempts failed for problem ${i+1}. Skipping.`);
+                }
             }
-        } catch (error) {
-            console.error(`[FULL_EXAM_SET_DATA_ITERATION_ERROR] Failed to generate problem for lesson/context "${lessonOrContext.titreLecon || 'General Context'}". Error: ${error.message}. Skipping this problem.`, error.stack ? error.stack.substring(0,500) : '');
-            // Optionally, you could implement a retry here for the whole problem generation if desired
+        }
+        if (problemGenerated && i < lessonsToGenerate.length - 1) {
+             await delay(1500); 
         }
     }
 
@@ -303,7 +249,7 @@ const generateFullExamSetData = async (academicLevelId, trackId, subjectId, exam
         throw new Error(`Failed to generate ANY valid problems for the exam (Subject: ${subjectFileNameFromDB}). Check AI generation steps and prompt configurations.`);
     }
     
-    console.log(`[FULL_EXAM_SET_DATA_END] Successfully generated data for ${generatedProblemsDataArray.length} problems for subject "${subjectFileNameFromDB}".`);
+    console.log(`[EXAM_GEN_END] Successfully generated data for ${generatedProblemsDataArray.length} problems for subject "${subjectFileNameFromDB}".`);
     return generatedProblemsDataArray;
 };
 
