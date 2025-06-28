@@ -63,6 +63,12 @@ FORMAT_DE_SORTIE_JSON_STRICT (QCM):
 6.  Texte_de_la_question: La question doit être claire, précise, et peut contenir des expressions mathématiques formatées en LaTeX (ex: \\\\int_{0}^{1} f(x) dx).
 7.  Champ "lesson": Doit être rempli avec une représentation concise de "${lessonForJsonOutput}".
 8.  Champ "type": Doit être "mcq".
+
+    // --- *** الإضافة هنا *** ---
+    NOTE_IMPORTANTE_SUR_LA_CONCISION:
+    Tout en respectant la rigueur mathématique, veillez à ce que la question et les options soient aussi concises que possible. L'objectif est de tester le concept clé sans verbosité inutile qui pourrait rendre la réponse JSON trop longue.
+    // --- *** نهاية الإضافة *** ---
+
 Répondez UNIQUEMENT avec un seul objet JSON valide, encapsulé dans \`\`\`json ... \`\`\`.
 \`\`\`json
 {

@@ -17,7 +17,7 @@ async function fetchGeminiWithConfig(promptText, generationConfig, modelType = '
             contents: [{ parts: [{ text: promptText }] }],
             generationConfig: {
                 temperature: 0.7,
-                maxOutputTokens: 4096,
+                maxOutputTokens: 8192,
                 responseMimeType: "application/json",
                 ...generationConfig,
             },
