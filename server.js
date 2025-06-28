@@ -23,7 +23,8 @@ app.set('trust proxy', 1);
 // 4. إعدادات CORS
 const allowedOrigins = [
     'http://localhost:3000', // للبيئة المحلية (React/Vue/Angular Dev Server)
-    'http://localhost:8080', // للبيئة المحلية (إذا كان الفرونت إند يعمل على هذا البورت)
+    'http://localhost:8080',
+    'https://bac-boost-maroc-git-testmode-incomplete-lkjkljs-projects.vercel.app', // للبيئة المحلية (إذا كان الفرونت إند يعمل على هذا البورت)
     // *** هذا هو المكان الذي يجب أن تضيف فيه دومين Vercel الفعلي الخاص بك ***
     // مثال: 'https://your-vercel-app-name.vercel.app',
     'https://bac-boost-maroc.vercel.app'
