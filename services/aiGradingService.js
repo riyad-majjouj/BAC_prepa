@@ -1,86 +1,30 @@
 // back-end/services/aiGradingService.js
+
 const TimedExamAttempt = require('../models/TimedExamAttempt');
 const { fetchGeminiWithConfig, processStepOutput } = require('../utils/promptHelpers');
 
 /**
- * Creates a specific grading prompt for a given sub-question type.
+ * Creates a specific grading prompt for a free-text sub-question.
  * @param {object} questionData - Contains original question data and user's answer.
- * @returns {string|null} - The generated prompt text, or null if AI grading is not needed.
+ * @returns {string} - The generated prompt text for the AI.
  */
-function createGradingPrompt(questionData) {
-    const { originalSq, userAnswer } = questionData;
-    let specificInstructions = "";
-
-    // --- التحسين الدفاعي ---
-    // إذا كان نوع السؤال غير محدد، افترض أنه نص حر لضمان محاولة التصحيح
-    const format = originalSq.question_format || 'free_text';
-
-    switch (format) {
-        case 'free_text':
-            specificInstructions = `
-Question Context: A free-text question asking for an explanation or calculation.
-Question: "${originalSq.text}"
-Model Answer/Criteria: "${originalSq.correct_answer || 'No specific model answer was provided, grade based on general correctness.'}"
-User's Answer: "${userAnswer}"
-Task: Evaluate the user's answer for correctness, completeness, and scientific accuracy based on the model answer and general knowledge of the topic.`;
-            break;
-        
-        case 'table_completion':
-            specificInstructions = `
-Question Context: A table completion task.
-Task Description: "${originalSq.text}"
-Table Structure to be filled: ${JSON.stringify(originalSq.table_data?.rows_structure)}
-User's Filled Answers (as a map of cellKey: value): ${JSON.stringify(userAnswer)}
-Correct Full Table for reference: ${JSON.stringify(originalSq.table_data?.correct_full_table)}
-Task: Compare the user's filled data with the correct full table. Award points based on the number of correctly filled cells. Provide feedback on which cells were incorrect.`;
-            break;
-
-        case 'matching_pairs':
-            specificInstructions = `
-Question Context: A matching pairs task.
-Task Description: "${originalSq.text}"
-Group A Items: ${JSON.stringify(originalSq.group_a_items)}
-Group B Items: ${JSON.stringify(originalSq.group_b_items)}
-User's Matches (array of {item_a, selected_b}): ${JSON.stringify(userAnswer)}
-Correct Matches for reference: ${JSON.stringify(originalSq.correct_matches)}
-Task: Evaluate how many pairs the user matched correctly. Award partial points proportionally.`;
-            break;
-
-        case 'true_false_justify':
-             const userAnswerObj = (typeof userAnswer === 'object' && userAnswer !== null) ? userAnswer : {};
-             const userChoice = userAnswerObj.choice;
-             const userJustification = userAnswerObj.justification || "";
-             const correctChoice = originalSq.correct_answer_details?.is_true;
-             const modelJustification = originalSq.correct_answer_details?.correction || originalSq.correct_answer_details?.justification_quote || 'No model justification provided.';
-             const choiceIsCorrect = userChoice === correctChoice;
-
-             if (!userJustification.trim()) {
-                 return null; 
-             }
-             specificInstructions = `
-Question Context: Grading the justification for a True/False question.
-Proposition: "${originalSq.text}"
-The correct choice was: ${correctChoice}. The user chose: ${userChoice} (This choice was ${choiceIsCorrect ? 'CORRECT' : 'INCORRECT'}).
-User's Justification: "${userJustification}"
-Model Justification/Correction: "${modelJustification}"
-Task: Evaluate ONLY the user's justification. Is it scientifically correct and relevant, even if their initial T/F choice was wrong? The maximum points for the entire question is ${originalSq.points}. Assume the choice part is worth 40% and justification is 60%. Grade the justification out of the available 60% of points.`;
-            break;
-
-        // الحالة default لم تعد ضرورية بعد الآن بسبب المعالجة الدفاعية أعلاه
-        default:
-            // في حالة وجود نوع غير متوقع ولكنه ليس نصًا حرًا، يمكننا إرجاع null
-            // ولكن مع الافتراض الأولي، هذا القسم لن يتم الوصول إليه غالبًا
-             console.warn(`[AI_GRADING_SERVICE] Unhandled question format '${format}' for sub-question. Skipping AI prompt generation.`);
-            return null;
-    }
+function createGradingPrompt(originalSq, userAnswer) {
+    const modelAnswerHint = originalSq.correctAnswer 
+        ? `The model answer is: "${originalSq.correctAnswer}". Grade the user's answer based on correctness and similarity to the model answer.`
+        : `No specific model answer was provided. Grade the user's answer based on general correctness, logic, and scientific accuracy relevant to the question's topic.`;
 
     return `
 You are a strict but fair AI grading assistant for Moroccan Baccalaureate level exams.
-${specificInstructions}
-Maximum points for THIS entire sub-question: ${originalSq.points}.
-Based on your evaluation, provide a score and brief feedback. For justification tasks, score only the justification part.
+Your task is to evaluate the user's answer to the following free-text question.
 
-STRICT JSON OUTPUT FORMAT (JSON only, no other text):
+Question: "${originalSq.text}"
+User's Answer: "${userAnswer}"
+${modelAnswerHint}
+
+Maximum points for this sub-question: ${originalSq.points}.
+Based on your evaluation, provide a score and brief feedback.
+
+STRICT JSON OUTPUT FORMAT (JSON only, no other text or markdown):
 {
   "awardedPoints": number,
   "feedback": "string (A concise explanation for the score, e.g., 'Correct answer.', 'Partially correct, you missed...', 'Incorrect because...')"
@@ -89,16 +33,16 @@ STRICT JSON OUTPUT FORMAT (JSON only, no other text):
 }
 
 /**
- * Grades a full exam attempt, using AI for complex question types.
+ * Grades a full exam attempt, using AI for complex/free-text questions.
  * @param {string} attemptId - The ID of the TimedExamAttempt document.
  * @returns {Promise<Document>} - The updated and saved exam attempt document.
  */
 async function gradeExamAttemptByAI(attemptId) {
-    console.log(`[AI_GRADING_SERVICE] Starting AI grading for attemptId: ${attemptId}`);
+    console.log(`[GRADING_SERVICE] Starting grading for attemptId: ${attemptId}`);
     const examAttempt = await TimedExamAttempt.findById(attemptId);
     if (!examAttempt) throw new Error(`Exam attempt ${attemptId} not found for grading.`);
-    if (examAttempt.status === 'completed' || examAttempt.status === 'grading-failed' || examAttempt.status === 'timed-out') {
-        console.warn(`[AI_GRADING_SERVICE] Attempt ${attemptId} is already finalized. Skipping grading.`);
+    if (examAttempt.status !== 'in-progress') {
+        console.warn(`[GRADING_SERVICE] Attempt ${attemptId} is already finalized (${examAttempt.status}). Skipping grading.`);
         return examAttempt;
     }
 
@@ -109,69 +53,63 @@ async function gradeExamAttemptByAI(attemptId) {
         for (const sqAnswer of problem.subQuestionAnswers) {
             const originalSq = problem.subQuestionsData.find(osq => osq.difficultyOrder === sqAnswer.subQuestionOrderInProblem);
             if (!originalSq) {
-                console.warn(`[AI_GRADING_SERVICE] Original subQuestion not found for order ${sqAnswer.subQuestionOrderInProblem}. Skipping.`);
+                console.warn(`[GRADING_SERVICE] Original subQuestion not found for order ${sqAnswer.subQuestionOrderInProblem}. Skipping.`);
                 continue;
             }
 
             let awardedPointsForSq = 0;
-            // غيرنا القيمة الافتراضية لتكون أوضح في حالة حدوث خطأ
-            let feedbackForSq = "Grading not applicable or skipped for this question.";
-            
-            if (originalSq.question_format === 'mcq') {
-                const correctAnswer = originalSq.correct_answer;
-                const userAnswer = sqAnswer.userAnswer;
-                if (Array.isArray(correctAnswer)) { 
-                    if (Array.isArray(userAnswer) && userAnswer.length === correctAnswer.length && userAnswer.every(val => correctAnswer.includes(val))) {
-                        awardedPointsForSq = originalSq.points;
-                        feedbackForSq = "Correct answers selected.";
-                    } else {
-                        feedbackForSq = `Incorrect. The correct answers were: ${correctAnswer.join(', ')}.`;
-                    }
-                } else if (typeof correctAnswer === 'string') {
-                    if (typeof userAnswer === 'string' && userAnswer.trim().toLowerCase() === correctAnswer.trim().toLowerCase()) {
-                        awardedPointsForSq = originalSq.points;
-                        feedbackForSq = "Correct answer selected.";
-                    } else {
-                        feedbackForSq = `Incorrect. The correct answer was: "${correctAnswer}".`;
-                    }
-                }
-            } else {
-                const prompt = createGradingPrompt({ originalSq, userAnswer: sqAnswer.userAnswer });
-                
-                if (prompt) {
-                    console.log(`[AI_GRADING_SERVICE] Grading sub-question order ${sqAnswer.subQuestionOrderInProblem} (format: ${originalSq.question_format}) for attempt ${attemptId}`);
-                    try {
-                        const rawResponse = await fetchGeminiWithConfig(prompt, { temperature: 0.2, maxOutputTokens: 300 });
-                        const gradingResult = await processStepOutput(rawResponse);
-                        
-                        awardedPointsForSq = Number(gradingResult.awardedPoints) || 0;
-                        feedbackForSq = gradingResult.feedback || "Graded by AI.";
+            let feedbackForSq = "Grading not performed.";
+            const userAnswer = sqAnswer.userAnswer;
 
-                        if (originalSq.question_format === 'true_false_justify') {
-                            const userAnswerObj = (typeof sqAnswer.userAnswer === 'object' && sqAnswer.userAnswer !== null) ? sqAnswer.userAnswer : {};
-                            if (userAnswerObj.choice === originalSq.correct_answer_details?.is_true) {
-                                awardedPointsForSq += (originalSq.points * 0.4);
-                            }
+            // --- بداية منطق التصحيح الجديد ---
+            
+            // تحقق أولاً إذا كان المستخدم قد أجاب
+            if (!userAnswer || userAnswer.trim() === '') {
+                awardedPointsForSq = 0;
+                feedbackForSq = "No answer provided.";
+            } else {
+                // استخدمنا `originalSq.type` الذي أضفناه في الحل السابق
+                switch (originalSq.type) {
+                    case 'mcq':
+                    case 'true_false':
+                        // تصحيح فوري ومباشر لهذه الأنواع
+                        if (userAnswer.trim().toLowerCase() === originalSq.correctAnswer?.trim().toLowerCase()) {
+                            awardedPointsForSq = originalSq.points;
+                            feedbackForSq = "Correct answer.";
+                        } else {
+                            awardedPointsForSq = 0;
+                            feedbackForSq = `Incorrect. The correct answer was: "${originalSq.correctAnswer}".`;
                         }
-                    } catch (e) {
-                        console.error(`[AI_GRADING_CATCH] AI grading error for sub-question in attempt ${attemptId}: ${e.message}`);
-                        feedbackForSq = "AI grading failed for this question.";
-                    }
-                } else if (!sqAnswer.userAnswer) {
-                    feedbackForSq = "No answer provided.";
-                    awardedPointsForSq = 0;
-                } else if (originalSq.question_format === 'true_false_justify') {
-                    const userAnswerObj = (typeof sqAnswer.userAnswer === 'object' && sqAnswer.userAnswer !== null) ? sqAnswer.userAnswer : {};
-                     if (userAnswerObj.choice === originalSq.correct_answer_details?.is_true) {
-                        awardedPointsForSq = originalSq.points * 0.4;
-                        feedbackForSq = "Choice is correct, but no justification was provided.";
-                    } else {
-                         feedbackForSq = `Choice is incorrect (correct was ${originalSq.correct_answer_details?.is_true}). No justification provided.`;
-                    }
+                        console.log(`[GRADING_SERVICE] Direct grading for ${originalSq.type}. User: '${userAnswer}', Correct: '${originalSq.correctAnswer}'. Score: ${awardedPointsForSq}`);
+                        break;
+                    
+                    case 'free_text':
+                        // هذا النوع فقط يتم إرساله للذكاء الاصطناعي
+                        console.log(`[GRADING_SERVICE] AI grading for free_text sub-question order ${sqAnswer.subQuestionOrderInProblem}`);
+                        const prompt = createGradingPrompt(originalSq, userAnswer);
+                        try {
+                            const rawResponse = await fetchGeminiWithConfig(prompt, { temperature: 0.2, maxOutputTokens: 300 });
+                            const gradingResult = await processStepOutput(rawResponse);
+                            
+                            awardedPointsForSq = Number(gradingResult.awardedPoints) || 0;
+                            feedbackForSq = gradingResult.feedback || "Graded by AI.";
+                        } catch (e) {
+                            console.error(`[GRADING_SERVICE_CATCH] AI grading error for sub-question in attempt ${attemptId}: ${e.message}`);
+                            awardedPointsForSq = 0;
+                            feedbackForSq = "An error occurred during AI grading for this question.";
+                        }
+                        break;
+
+                    default:
+                        // للأنواع المستقبلية التي لم تعالج بعد
+                        console.warn(`[GRADING_SERVICE] Unhandled question type '${originalSq.type}'. Skipping grading.`);
+                        feedbackForSq = "This question type is not currently graded automatically.";
+                        break;
                 }
             }
+            // --- نهاية منطق التصحيح الجديد ---
 
-            sqAnswer.awardedPoints = Math.max(0, Math.min(awardedPointsForSq, originalSq.points));
+            sqAnswer.awardedPoints = Math.max(0, Math.min(awardedPointsForSq, originalSq.points)); // ضمان عدم تجاوز النقاط
             sqAnswer.aiFeedback = feedbackForSq.trim();
             problemScore += sqAnswer.awardedPoints;
         }
@@ -186,16 +124,10 @@ async function gradeExamAttemptByAI(attemptId) {
         examAttempt.overallScoreOutOf20 = 0;
     }
     
-    // تحديد الحالة النهائية بناءً على الوقت
-    const timeTakenSeconds = (examAttempt.endTime.getTime() - examAttempt.startTime.getTime()) / 1000;
-    if (timeTakenSeconds > (examAttempt.timeLimitMinutes * 60) + 15) {
-        examAttempt.status = 'timed-out';
-    } else {
-        examAttempt.status = 'completed'; // Grading is done
-    }
+    examAttempt.status = 'completed'; // تم التصحيح
     
     await examAttempt.save();
-    console.log(`[AI_GRADING_SERVICE] AI grading COMPLETED for attemptId: ${attemptId}. Final score: ${examAttempt.overallRawScore}/${examAttempt.overallTotalPossibleRawScore}`);
+    console.log(`[GRADING_SERVICE] Grading COMPLETED for attemptId: ${attemptId}. Final score: ${examAttempt.overallRawScore}/${examAttempt.overallTotalPossibleRawScore}`);
     return examAttempt;
 }
 

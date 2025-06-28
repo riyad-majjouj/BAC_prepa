@@ -108,7 +108,8 @@ const progressRoutes = require('./routes/progressRoutes');
 const examRoutes = require('./routes/examRoutes');
 const academicLevelRoutes = require('./routes/academicLevelRoutes');
 const trackRoutes = require('./routes/trackRoutes');
-
+const devoirRoutes = require('./routes/devoirRoutes');
+const uploadRoutes = require('./routes/uploadRoutes');
 // مسار رئيسي ترحيبي
 app.get('/', (req, res) => {
     res.send('API is running successfully!');
@@ -153,7 +154,8 @@ app.use('/api/exams', examRoutes);
 app.use('/api/progress', progressRoutes);
 app.use('/api/academic-levels', academicLevelRoutes);
 app.use('/api/tracks', trackRoutes);
-
+app.use('/api/devoirs', devoirRoutes);
+app.use('/api/upload', uploadRoutes);
 // 10. Middlewares لمعالجة الأخطاء (يجب أن تكون في النهاية)
 app.use(notFound);
 app.use(errorHandler);

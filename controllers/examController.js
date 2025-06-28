@@ -1,160 +1,191 @@
 // back-end/controllers/examController.js
+
 const asyncHandler = require('express-async-handler');
 const mongoose = require('mongoose');
 const TimedExamAttempt = require('../models/TimedExamAttempt');
 const AcademicLevel = require('../models/AcademicLevel');
 const Track = require('../models/Track');
 const Subject = require('../models/Subject');
+const Devoir = require('../models/Devoir');
 const { gradeExamAttemptByAI } = require('../services/aiGradingService');
 const { generateFullExamSetData } = require('../utils/aiTimedExamGenerator');
+const { loadPromptModule } = require('../utils/aiGeneralQuestionGeneratorShared');
 
 const mapApiDifficultyToDb = (apiValue) => {
-    const mapping = {
-        'Facile': 'سهل',
-        'Moyen': 'متوسط',
-        'Difficile': 'صعب'
-    };
-    if (Object.values(mapping).includes(apiValue)) {
-        return apiValue;
-    }
-    return mapping[apiValue] || 'متوسط';
+    const mapping = { 'Facile': 'سهل', 'Moyen': 'متوسط', 'Difficile': 'صعب' };
+    return Object.values(mapping).includes(apiValue) ? apiValue : (mapping[apiValue] || 'متوسط');
 };
+// back-end/controllers/examController.js
 
-// @desc    Start a new timed exam (AI Generated)
-// @route   POST /api/exams/start
-// @access  Private
+// back-end/controllers/examController.js
+
 const startExam = asyncHandler(async (req, res) => {
-    const { academicLevelId, trackId, subjectId, difficulty } = req.body;
+    const { academicLevelId, trackId, subjectId, difficulty: difficultyApiValue } = req.body;
+    const userId = req.user._id;
 
-    console.log(`[EXAM_CTRL_START] User ${req.user._id} starting exam. Params: Lvl=${academicLevelId}, Trk=${trackId}, Sub=${subjectId}, DiffUI=${difficulty}.`);
-
-    if (!academicLevelId || !trackId || !subjectId || !difficulty) {
-        res.status(400);
-        throw new Error('Please provide all required fields for starting an exam (academicLevelId, trackId, subjectId, difficulty).');
+    if (!academicLevelId || !trackId || !subjectId || !difficultyApiValue) {
+        res.status(400); throw new Error('Please provide all required fields.');
     }
 
-    const difficultyApiValue = difficulty;
-    let generatedProblemsPayload;
-
-    try {
-        generatedProblemsPayload = await generateFullExamSetData(academicLevelId, trackId, subjectId, difficultyApiValue);
-    } catch (generationError) {
-        console.error(`[EXAM_CTRL_START_CATCH_ERROR] Error generating full exam data: ${generationError.message}`, generationError.stack);
-        res.status(500);
-        throw new Error(`Failed to generate exam content: ${generationError.message}`);
-    }
+    const difficultyDbValue = mapApiDifficultyToDb(difficultyApiValue);
     
+    // --- منطق العشوائية واختيار المصدر ---
+    let devoirFromDb = null;
+    const PROBABILITY_TO_USE_DB = 0.7; // 70% for DB
 
-    if (!generatedProblemsPayload || generatedProblemsPayload.length === 0) {
-        res.status(500);
-        throw new Error('Exam generation resulted in no problems. Please try again or contact support.');
-    }
-    
-    let timeLimitFromSource = 120;
-    try {
-        const academicLevelDoc = await AcademicLevel.findById(academicLevelId).select('name').lean();
-        const trackDoc = await Track.findById(trackId).select('name').lean();
-        const subjectDoc = await Subject.findById(subjectId).select('name').lean();
-
-        if (academicLevelDoc && trackDoc && subjectDoc) {
-            const examConfigModule = require('../utils/aiGeneralQuestionGeneratorShared').loadPromptModule(
-                academicLevelDoc.name,
-                trackDoc.name,
-                subjectDoc.name,
-                'exam'
-            );
-            if (examConfigModule && examConfigModule.examConfig && examConfigModule.examConfig.timeLimitMinutes) {
-                timeLimitFromSource = examConfigModule.examConfig.timeLimitMinutes;
-                console.log(`[EXAM_CTRL_START] Loaded timeLimitMinutes: ${timeLimitFromSource} from prompt module for ${subjectDoc.name}.`);
-            } else {
-                console.warn(`[EXAM_CTRL_START] Could not load timeLimitMinutes from prompt module for ${subjectDoc.name}. Using default ${timeLimitFromSource}min.`);
-            }
-        } else {
-            console.warn("[EXAM_CTRL_START] Could not load academic/track/subject details to fetch exam config. Using default time limit.");
-        }
-    } catch (configError) {
-        console.error(`[EXAM_CTRL_START] Error loading exam config: ${configError.message}. Using default time limit.`);
-    }
-
-    const overallTotalPossibleRawScore = generatedProblemsPayload.reduce((sum, problem, index) => {
-        if (typeof problem.totalPoints !== 'number') {
-            console.error(`[EXAM_CTRL_START] Problem at index ${index} (Title: ${problem.problemTitle || 'N/A'}) is missing 'totalPoints' or it's not a number.`);
-            throw new Error(`Problem (Title: ${problem.problemTitle || 'N/A'}) is missing valid 'totalPoints'.`);
-        }
-        return sum + problem.totalPoints;
-    }, 0);
-
-    const difficultyDbValue = mapApiDifficultyToDb(difficulty);
-    console.log(`[EXAM_CTRL_START] Mapped difficulty: UI='${difficulty}', API_Used_For_Gen='${difficultyApiValue}', DB_Stored='${difficultyDbValue}'`);
-
-    const examAttempt = new TimedExamAttempt({
-        user: req.user._id,
-        academicLevel: academicLevelId,
-        track: trackId,
-        subject: subjectId,
+    const potentialDevoirsCount = await Devoir.countDocuments({
+        academicLevel: new mongoose.Types.ObjectId(academicLevelId),
+        track: new mongoose.Types.ObjectId(trackId),
+        subject: new mongoose.Types.ObjectId(subjectId),
         difficulty: difficultyDbValue,
-        problems: generatedProblemsPayload.map((p, index) => {
-            if (!p.text || typeof p.text !== 'string') {
-                console.error(`[EXAM_CTRL_START] Problem (Title: ${p.problemTitle || `Index ${index}`}) is missing 'text' (problemText). Payload:`, p);
-                throw new Error(`Problem (Title: ${p.problemTitle || `Index ${index}`}) is missing its main text content.`);
-            }
-            const orderInExam = p.orderInExam || (index + 1);
+    });
 
-            return {
-                problemTitle: p.problemTitle || `Problem ${orderInExam}`,
+    console.log(`[EXAM_CTRL_START] Found ${potentialDevoirsCount} potential DB devoirs matching criteria.`);
+
+    if (potentialDevoirsCount > 0 && Math.random() < PROBABILITY_TO_USE_DB) {
+        console.log(`[EXAM_CTRL_START] Random check passed. Attempting to select a DB devoir.`);
+        const completedDevoirIds = (await TimedExamAttempt.find({ user: userId, sourceDevoirId: { $ne: null } }).select('sourceDevoirId -_id').lean()).map(entry => entry.sourceDevoirId);
+        
+        const matchStage = { 
+            academicLevel: new mongoose.Types.ObjectId(academicLevelId), 
+            track: new mongoose.Types.ObjectId(trackId), 
+            subject: new mongoose.Types.ObjectId(subjectId), 
+            difficulty: difficultyDbValue, 
+            _id: { $nin: completedDevoirIds } 
+        };
+        const randomDevoirDoc = (await Devoir.aggregate([{ $match: matchStage }, { $sample: { size: 1 } }]))[0];
+        
+        if (randomDevoirDoc) {
+            devoirFromDb = await Devoir.findById(randomDevoirDoc._id).lean();
+        } else {
+             console.log(`[EXAM_CTRL_START] No UNSOLVED DB devoir found for this user. Will fall back to AI.`);
+        }
+    }
+
+    if (devoirFromDb) {
+        // --- المسار الأول: استخدام فرض من قاعدة البيانات (لا يتغير) ---
+        console.log(`[EXAM_CTRL_DECISION] Final Decision: Using DB Devoir. ID: ${devoirFromDb._id}`);
+        if (!devoirFromDb.problems?.length) {
+            res.status(500); throw new Error('DB Devoir found but it has no problems.');
+        }
+
+        const examAttempt = new TimedExamAttempt({
+            user: userId, academicLevel: academicLevelId, track: trackId, subject: subjectId, difficulty: difficultyDbValue,
+            problems: devoirFromDb.problems.map((problem, index) => {
+                let uniqueOrderCounter = 1;
+                return {
+                    problemTitle: problem.title,
+                    problemText: problem.context,
+                    orderInExam: index + 1,
+                    subQuestionsData: (problem.instructions || []).flatMap(instruction =>
+                        (instruction.subQuestions || []).map(sq => ({
+                            text: `${instruction.title}\n${sq.text}`,
+                            points: sq.points,
+                            difficultyOrder: uniqueOrderCounter++,
+                            type: sq.questionType,
+                            options: sq.options || [],
+                            correctAnswer: sq.correctAnswer,
+                            imageUrl: instruction.imageUrl || null,
+                        }))
+                    ),
+                    problemTotalPossibleRawScore: (problem.instructions || []).reduce((sum, i) => sum + (i.subQuestions || []).reduce((subSum, sq) => subSum + (sq.points || 0), 0), 0),
+                    problemId: new mongoose.Types.ObjectId().toString(),
+                };
+            }),
+            overallTotalPossibleRawScore: devoirFromDb.totalPoints, timeLimitMinutes: devoirFromDb.timeLimitMinutes,
+            status: 'in-progress', source: 'db_devoir', sourceDevoirId: devoirFromDb._id,
+            config: { difficultyApiValue, sourceTitle: devoirFromDb.title },
+        });
+
+        const createdAttempt = await examAttempt.save();
+        console.log(`[EXAM_CTRL_SUCCESS] DB Devoir attempt ${createdAttempt._id} created for user ${userId}.`);
+        
+        const problemsForDisplay = createdAttempt.problems.map(p => ({
+            problemId: p.problemId, problemOrderInExam: p.orderInExam, problemTitle: p.problemTitle, problemText: p.problemText,
+            problemTotalPossibleScore: p.problemTotalPossibleRawScore,
+            subQuestions: p.subQuestionsData.map(sq => ({
+                text: sq.text, points: sq.points, orderInProblem: sq.difficultyOrder,
+                type: sq.type,
+                options: sq.options,
+                imageUrl: sq.imageUrl,
+            }))
+        }));
+
+        return res.status(201).json({ examAttemptId: createdAttempt._id, problems: problemsForDisplay, timeLimitMinutes: createdAttempt.timeLimitMinutes, startTime: createdAttempt.startTime.toISOString() });
+
+    } else {
+        // --- المسار الثاني: إنشاء اختبار مؤقت بالذكاء الاصطناعي (هنا التعديل) ---
+        console.log(`[EXAM_CTRL_DECISION] Final Decision: Using AI Generation.`);
+        
+        const generatedProblemsPayload = await generateFullExamSetData(academicLevelId, trackId, subjectId, difficultyApiValue);
+        if (!generatedProblemsPayload?.length) {
+            res.status(500); throw new Error('AI generation resulted in no problems.');
+        }
+
+        let timeLimitFromSource = 120;
+        try {
+            const [levelDoc, trackDoc, subjectDoc] = await Promise.all([
+                AcademicLevel.findById(academicLevelId).select('name').lean(),
+                Track.findById(trackId).select('name').lean(),
+                Subject.findById(subjectId).select('name').lean()
+            ]);
+            if (levelDoc && trackDoc && subjectDoc) {
+                const examConfigModule = loadPromptModule(levelDoc.name, trackDoc.name, subjectDoc.name, 'exam');
+                if (examConfigModule?.examConfig?.timeLimitMinutes) timeLimitFromSource = examConfigModule.examConfig.timeLimitMinutes;
+            }
+        } catch (configError) { console.warn(`Error loading exam config: ${configError.message}`); }
+
+        // حساب تاريخ انتهاء الصلاحية (300 دقيقة من الآن)
+        const expirationDate = new Date();
+        expirationDate.setMinutes(expirationDate.getMinutes() + 300); 
+        console.log(`[EXAM_CTRL_AI] This AI-generated exam is temporary and will expire at: ${expirationDate.toISOString()}`);
+
+        const examAttempt = new TimedExamAttempt({
+            user: userId, academicLevel: academicLevelId, track: trackId, subject: subjectId, difficulty: difficultyDbValue,
+            problems: generatedProblemsPayload.map((p, index) => ({
+                problemTitle: p.problemTitle || `Problem ${index + 1}`,
                 problemText: p.text,
-                problemLesson: p.lesson,
+                orderInExam: p.orderInExam || (index + 1),
                 subQuestionsData: p.subQuestions.map(sq => ({
-                    text: sq.text,
-                    points: sq.points,
-                    difficultyOrder: sq.difficultyOrder,
-                    question_format: sq.question_format, // تأكد من حفظ هذا الحقل
-                    correct_answer: sq.correct_answer, // تأكد من حفظ هذا الحقل
-                    correct_answer_details: sq.correct_answer_details, // تأكد من حفظ هذا الحقل
-                    category: sq.category,
-                    type: sq.type
+                    text: sq.text, points: sq.points, difficultyOrder: sq.difficultyOrder,
+                    type: sq.type || 'free_text',
+                    options: sq.options || [],
+                    imageUrl: sq.imageUrl || null,
                 })),
-                orderInExam: orderInExam,
                 problemTotalPossibleRawScore: p.totalPoints,
                 problemId: p.problemId || new mongoose.Types.ObjectId().toString()
-            };
-        }),
-        overallTotalPossibleRawScore: Math.round(overallTotalPossibleRawScore * 100) / 100,
-        timeLimitMinutes: timeLimitFromSource,
-        status: 'in-progress',
-        config: {
-            numberOfProblems: generatedProblemsPayload.length,
-            difficultyApiValue: difficultyApiValue,
-        },
-    });
+            })),
+            overallTotalPossibleRawScore: generatedProblemsPayload.reduce((sum, p) => sum + (p.totalPoints || 0), 0),
+            timeLimitMinutes: timeLimitFromSource,
+            status: 'in-progress', 
+            source: 'ai_generated', 
+            sourceDevoirId: null,
+            config: { numberOfProblems: generatedProblemsPayload.length, difficultyApiValue },
+            // إضافة حقل انتهاء الصلاحية فقط للاختبارات المنشأة من AI
+            expiresAt: expirationDate,
+        });
 
-    const createdAttempt = await examAttempt.save();
-    console.log(`[EXAM_CTRL_START_SUCCESS] Exam attempt ${createdAttempt._id} created for user ${req.user._id}.`);
+        const createdAttempt = await examAttempt.save();
+        console.log(`[EXAM_CTRL_SUCCESS] AI-Generated temporary attempt ${createdAttempt._id} created for user ${userId}.`);
 
-    const problemsForDisplay = createdAttempt.problems.map(p => ({
-        problemId: p.problemId,
-        problemOrderInExam: p.orderInExam,
-        problemTitle: p.problemTitle,
-        problemText: p.problemText,
-        problemLesson: p.problemLesson,
-        problemTotalPossibleScore: p.problemTotalPossibleRawScore,
-        subQuestions: p.subQuestionsData.map(sq => ({
-            text: sq.text,
-            points: sq.points,
-            orderInProblem: sq.difficultyOrder,
-            question_format: sq.question_format,
-            category: sq.category,
-            type: sq.type
-        }))
-    }));
+        const problemsForDisplay = createdAttempt.problems.map(p => ({
+            problemId: p.problemId, problemOrderInExam: p.orderInExam, problemTitle: p.problemTitle, problemText: p.problemText,
+            problemTotalPossibleScore: p.problemTotalPossibleRawScore,
+            subQuestions: p.subQuestionsData.map(sq => ({
+                text: sq.text, points: sq.points, orderInProblem: sq.difficultyOrder,
+                type: sq.type,
+                options: sq.options,
+                imageUrl: sq.imageUrl,
+            }))
+        }));
 
-    res.status(201).json({
-        examAttemptId: createdAttempt._id,
-        problems: problemsForDisplay,
-        timeLimitMinutes: createdAttempt.timeLimitMinutes,
-        startTime: createdAttempt.startTime.toISOString(),
-    });
+        return res.status(201).json({ examAttemptId: createdAttempt._id, problems: problemsForDisplay, timeLimitMinutes: createdAttempt.timeLimitMinutes, startTime: createdAttempt.startTime.toISOString() });
+    }
 });
+
+
+// ... (بقية دوال المتحكم: submitExam, getExamAttemptResults, etc. تبقى كما هي)
+
 
 // @desc    Submit answers for a timed exam
 // @route   POST /api/exams/:attemptId/submit
@@ -164,86 +195,68 @@ const submitExam = asyncHandler(async (req, res) => {
     const { problemAnswers } = req.body;
     const userId = req.user._id.toString();
 
-    // التحقق من صحة الطلب والعثور على المحاولة
     if (!mongoose.Types.ObjectId.isValid(attemptId)) {
-        res.status(400);
-        throw new Error('Invalid exam attempt ID format.');
+        res.status(400); throw new Error('Invalid exam attempt ID format.');
     }
     const examAttempt = await TimedExamAttempt.findById(attemptId);
     if (!examAttempt) {
-        res.status(404);
-        throw new Error('Exam attempt not found.');
+        res.status(404); throw new Error('Exam attempt not found.');
     }
     if (examAttempt.user.toString() !== userId) {
-        res.status(403);
-        throw new Error('Not authorized.');
+        res.status(403); throw new Error('Not authorized.');
     }
     if (examAttempt.status !== 'in-progress') {
-        res.status(400);
-        throw new Error(`Exam already submitted.`);
+        res.status(400); throw new Error(`Exam already submitted.`);
     }
 
-    // --- START: تعديل منطق تسليم الإجابات والتصحيح ---
-
-    // الخطوة 1: تسجيل وقت نهاية الامتحان وتخزين إجابات المستخدم
     examAttempt.endTime = new Date();
 
     if (problemAnswers && Array.isArray(problemAnswers)) {
         for (const submittedProblem of problemAnswers) {
             const problemDB = examAttempt.problems.find(p => p.problemId === submittedProblem.problemId);
-            if (!problemDB) continue; // تخطي إذا لم يتم العثور على المسألة
+            if (!problemDB) continue;
 
-            // إفراغ الإجابات القديمة إن وجدت وإضافة الإجابات الجديدة
             problemDB.subQuestionAnswers = [];
 
             if (submittedProblem.subQuestionAnswers && Array.isArray(submittedProblem.subQuestionAnswers)) {
                 for (const sqAnsInput of submittedProblem.subQuestionAnswers) {
                     const originalSubQuestion = problemDB.subQuestionsData.find(osq => osq.difficultyOrder === sqAnsInput.orderInProblem);
-                    if (!originalSubQuestion) continue; // تخطي إذا لم يتم العثور على السؤال الأصلي
+                    if (!originalSubQuestion) continue;
 
-                    // تخزين إجابة المستخدم فقط. سيتم حساب النقاط لاحقاً.
                     problemDB.subQuestionAnswers.push({
                         subQuestionText: originalSubQuestion.text,
                         subQuestionOrderInProblem: sqAnsInput.orderInProblem,
                         subQuestionPoints: originalSubQuestion.points,
                         userAnswer: sqAnsInput.userAnswer || null,
-                        awardedPoints: 0, // القيمة الأولية، سيتم تحديثها بواسطة خدمة التصحيح
-                        aiFeedback: "Pending grading.", // الحالة الأولية
+                        awardedPoints: 0,
+                        aiFeedback: "Pending grading.",
                     });
                 }
             }
         }
     }
 
-    // الخطوة 2: حفظ المحاولة مع جميع إجابات المستخدم قبل بدء عملية التصحيح
     await examAttempt.save();
     console.log(`[EXAM_SUBMIT] Attempt ${attemptId} saved with user answers. Invoking AI grading service.`);
 
-    // الخطوة 3: استدعاء خدمة التصحيح الآلي مرة واحدة للمحاولة بأكملها
     try {
         const gradedAttempt = await gradeExamAttemptByAI(attemptId);
-
         console.log(`[EXAM_SUBMIT_SUCCESS] Attempt ${attemptId} submitted and graded. Score: ${gradedAttempt.overallRawScore}/${gradedAttempt.overallTotalPossibleRawScore}. Status: ${gradedAttempt.status}`);
         res.status(200).json({
             message: 'Exam submitted successfully and has been graded.',
             examAttemptId: gradedAttempt._id,
             status: gradedAttempt.status
         });
-
     } catch (gradingError) {
         console.error(`[EXAM_SUBMIT_CATCH] AI grading process failed for attempt ${attemptId}: ${gradingError.message}`);
-        
-        // في حالة فشل خدمة التصحيح، يتم تحديث حالة المحاولة لتعكس ذلك
         examAttempt.status = 'grading-failed';
         await examAttempt.save();
-
         res.status(500).json({
             message: 'Exam submitted, but a critical error occurred during the automated grading process.',
             examAttemptId: attemptId,
             status: 'grading-failed'
         });
     }
-    // --- END: نهاية التعديل ---
 });
 
 
@@ -286,6 +299,8 @@ const getExamAttemptResults = asyncHandler(async (req, res) => {
         startTime: examAttempt.startTime.toISOString(),
         endTime: examAttempt.endTime ? examAttempt.endTime.toISOString() : null,
         status: examAttempt.status,
+        source: examAttempt.source, // إرسال المصدر للواجهة
+        sourceTitle: examAttempt.config?.sourceTitle, // إرسال عنوان الفرض إذا كان المصدر من DB
         problems: examAttempt.problems.map(problem => ({
             problemId: problem.problemId,
             problemOrderInExam: problem.orderInExam,
@@ -327,7 +342,8 @@ const getExamHistoryForUser = asyncHandler(async (req, res) => {
         overallScoreOutOf20: attempt.overallScoreOutOf20,
         overallTotalPossibleRawScore: attempt.overallTotalPossibleRawScore,
         status: attempt.status,
-        date: attempt.startTime, 
+        date: attempt.startTime,
+        source: attempt.source,
     })));
 });
 
