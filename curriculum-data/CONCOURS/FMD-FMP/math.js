@@ -1,113 +1,73 @@
 // concours/FMD-FMP_Math.js
-// المادة: الرياضيات - مباراة ولوج كليتي الطب والصيدلة
-// المستوى: مراجعة لبرنامج البكالوريا علوم تجريبية (SVT و PC) مع تركيزات خاصة بمباريات FMD/FMP
+// المادة: الرياضيات - مباراة ولوج كليات الطب والصيدلة (FMD/FMP)
+// المستوى: محاكاة دقيقة لأسئلة المباراة التي تتطلب تحليل واستنتاج ودمج المفاهيم.
 
 module.exports = [
   // ===================================
   //            ANALYSE (التحليل)
   // ===================================
   {
-    titreLecon: "Fonctions Numériques : Limites, Continuité, Dérivabilité",
+    titreLecon: "Fonctions : Limites et Propriétés",
     langueContenu: "fr",
     paragraphes: [
-      "Calcul de limites de fonctions (polynômes, rationnelles, irrationnelles, trigonométriques, ln, exp)",
-      "Formes indéterminées et techniques de levée d'indétermination",
-      "Continuité en un point, sur un intervalle",
-      "Théorème des valeurs intermédiaires et son application à l'existence de solutions d'équations (f(x)=k, f(x)=0)",
-      "Dérivabilité en un point, interprétation géométrique (tangente)",
-      "Fonction dérivée, opérations sur les fonctions dérivées",
-      "Dérivées des fonctions usuelles (y compris ln(u), exp(u), u^n, sin(ax+b), cos(ax+b))"
+      "Calcul de limites basées sur la reconnaissance de formes usuelles (exp, ln)",
+      "Reconnaissance de la définition du nombre dérivé dans une limite",
+      "Application du Théorème des Valeurs Intermédiaires pour justifier une existence",
+      "Déduction de propriétés d'une fonction (parité, signe) à partir de son expression"
     ]
   },
   {
-    titreLecon: "Étude de Fonctions et Représentation Graphique",
+    titreLecon: "Dérivation et Applications",
     langueContenu: "fr",
     paragraphes: [
-      "Sens de variation d'une fonction et signe de sa dérivée",
-      "Tableau de variations complet",
-      "Extremums (maximum, minimum) d'une fonction",
-      "Concavité, convexité et points d'inflexion (étude à partir du signe de f'')",
-      "Branches infinies : asymptotes horizontales, verticales, obliques (y=ax+b)",
-      "Plan d'étude d'une fonction et tracé de sa courbe représentative",
-      "Position relative de deux courbes"
+      "Calcul de la dérivée d'une fonction composée (ex: f(ax+b))",
+      "Utilisation de la dérivée pour trouver les extrema d'une fonction",
+      "Lien entre le signe de f' et la monotonie de f",
+      "Détermination d'un paramètre pour qu'une tangente ait une propriété donnée (ex: parallèle à une droite)"
     ]
   },
   {
     titreLecon: "Suites Numériques",
     langueContenu: "fr",
     paragraphes: [
-      "Définition d'une suite, modes de génération (explicite, récurrente)",
-      "Monotonie d'une suite",
-      "Suites arithmétiques et géométriques (terme général, somme des n premiers termes)",
-      "Limite d'une suite (convergence, divergence) - cas simples et opérations",
-      "Limites des suites de référence (n^p, q^n, 1/n)",
-      "Suites récurrentes du type u_(n+1) = f(u_n) : étude graphique de la convergence, recherche de la limite si convergente"
-    ]
-  },
-  {
-    titreLecon: "Fonction Logarithme Népérien (ln)",
-    langueContenu: "fr",
-    paragraphes: [
-      "Définition, domaine, propriétés algébriques (ln(ab), ln(a/b), ln(a^r))",
-      "Étude complète de la fonction ln (limites aux bornes, dérivée, variations, graphe)",
-      "Résolution d'équations et inéquations contenant ln (ex: ln(X)=A, ln(X) < A)",
-      "Dérivée de ln(u(x))"
-    ]
-  },
-  {
-    titreLecon: "Fonction Exponentielle (exp)",
-    langueContenu: "fr",
-    paragraphes: [
-      "Définition comme réciproque de ln, domaine, propriétés algébriques (e^(a+b), e^(a-b), (e^a)^r)",
-      "Étude complète de la fonction exp (limites aux bornes, dérivée, variations, graphe)",
-      "Résolution d'équations et inéquations contenant exp (ex: e^X=A, e^X < A)",
-      "Dérivée de exp(u(x))",
-      "Croissances comparées (limites de x^n e^x, (ln x)/x^n, (e^x)/x^n - en 0 et +∞)"
+      "Déduction du terme général v_n à partir de la somme S_n = v_1 + ... + v_n",
+      "Étude de suites récurrentes u_(n+1) = f(u_n) et leur convergence",
+      "Utilisation de suites auxiliaires (géométriques/arithmétiques) pour trouver le terme général",
+      "Calcul de limites de suites impliquant des formes indéterminées"
     ]
   },
   {
     titreLecon: "Calcul Intégral",
     langueContenu: "fr",
     paragraphes: [
-      "Primitives d'une fonction : définition, détermination de primitives usuelles",
-      "Intégrale d'une fonction continue sur un segment [a,b] : définition, propriétés (linéarité, Chasles, positivité)",
-      "Valeur moyenne d'une fonction",
-      "Calcul d'intégrales à l'aide de primitives",
-      "Technique d'intégration par parties (applications simples)",
-      "Calcul d'aires de domaines plans délimités par une ou deux courbes et des droites verticales"
+      "Reconnaissance de primitives de la forme u'(x) * f'(u(x)) ou u'(x) / u(x)^n",
+      "Calcul d'une intégrale par une intégration par parties ciblée",
+      "Détermination d'une relation de récurrence entre des intégrales (ex: I_n+1 en fonction de I_n)",
+      "Utilisation de conditions initiales pour déterminer une constante d'intégration (ex: F(a)=b)",
+      "Calcul de l'aire d'un domaine défini par des courbes"
     ]
   },
   // ===================================
-  //   PROBABILITÉS (الاحتمالات) - Très important
+  //     ALGÈBRE ET GÉOMÉTRIE
   // ===================================
   {
-    titreLecon: "Dénombrement (Principes de Base)",
+    titreLecon: "Nombres Complexes",
     langueContenu: "fr",
     paragraphes: [
-      "Principe fondamental du dénombrement (produit et somme)",
-      "Arrangements (avec et sans répétition) : p-listes",
-      "Permutations (sans répétition)",
-      "Combinaisons (sans répétition) : C(n,p)",
-      "Utilisation dans des situations de tirages (successifs avec/sans remise, simultanés)"
+      "Résolution d'équations complexes et interprétation des propriétés des solutions (ex: |z|, arg(z))",
+      "Interprétation géométrique d'expressions complexes (ex: |(z-a)/(z-b)| = k, arg((z-a)/(z-b)) = k')",
+      "Lien entre les transformations géométriques (rotation, homothétie) et les opérations complexes",
+      "Utilisation des formules d'Euler pour la linéarisation ou le calcul de sommes"
     ]
   },
   {
-    titreLecon: "Probabilités",
+    titreLecon: "Géométrie Analytique et Probabilités",
     langueContenu: "fr",
     paragraphes: [
-      "Vocabulaire : expérience aléatoire, univers, événement, événement élémentaire, événements incompatibles, événement contraire",
-      "Calcul de probabilités dans le cas d'équiprobabilité P(A) = card(A)/card(Ω)",
-      "Propriétés des probabilités : P(A U B), P(Ā)",
-      "Probabilité conditionnelle : P_B(A) = P(A∩B)/P(B)",
-      "Formule des probabilités composées : P(A∩B) = P(A)P_A(B) = P(B)P_B(A)",
-      "Événements indépendants : P(A∩B) = P(A)P(B)",
-      "Formule des probabilités totales (utilisation d'arbres pondérés)",
-      "Épreuves répétées, Schéma de Bernoulli",
-      "Variable aléatoire discrète : loi de probabilité, fonction de répartition (cas discret)",
-      "Espérance mathématique E(X), Variance V(X), Écart-type σ(X) d'une variable aléatoire discrète",
-      "Loi binomiale B(n,p) : définition, calcul de P(X=k), espérance E(X)=np, variance V(X)=np(1-p)"
+      "Combinaison d'un problème de géométrie dans l'espace avec un tirage probabiliste",
+      "Détermination de la probabilité qu'un point (dont les coordonnées dépendent d'un aléa) appartienne à un ensemble (plan, sphère, etc.)",
+      "Calcul de distance d'un point à un plan ou une droite",
+      "Étude de l'intersection de plans, droites et sphères"
     ]
   }
-  // La géométrie dans l'espace est généralement moins présente ou absente.
-  // Les nombres complexes sont aussi moins fréquents, mais des bases peuvent apparaître.
 ];

@@ -1,168 +1,90 @@
 // concours/ENSAM_Math.js
-// المادة: الرياضيات - مباراة ولوج ENSAM
-// المستوى: مراجعة شاملة لبرنامج البكالوريا علوم رياضية مع تركيزات خاصة بمباريات ENSAM
+// المادة: الرياضيات - تم تحديثه ليشمل مواضيع العلوم الرياضية المتقدمة
 
 module.exports = [
   // ===================================
-  //            ANALYSE (التحليل)
+  // ANALYSE (التحليل)
   // ===================================
   {
-    titreLecon: "Fonctions Numériques : Étude Complète",
+    titreLecon: "Analyse de Fonctions",
     langueContenu: "fr",
     paragraphes: [
-      "Limites (techniques avancées, comparaison, encadrement)",
-      "Continuité, Théorème des Valeurs Intermédiaires et applications",
-      "Dérivabilité, fonction dérivée, T.A.F, I.A.F, applications à l'étude des variations",
-      "Dérivées successives, convexité, points d'inflexion",
-      "Branches infinies (asymptotes, branches paraboliques)",
-      "Construction de courbes paramétrées (si pertinent pour ENSAM)"
+      "Lever des indéterminations complexes avec les développements limités ou la règle de l'Hôpital.",
+      "Application du théorème des accroissements finis (TAF) pour obtenir des encadrements.",
+      "Étude de la convexité et points d'inflexion via le signe de la dérivée seconde.",
+      "Étude complète de fonctions trigonométriques réciproques (Arcsin, Arccos, Arctan).",
+      "Étude complète de fonctions hyperboliques et leurs réciproques (sh, ch, Argsh, Argch)."
     ]
   },
   {
-    titreLecon: "Suites Numériques",
+    titreLecon: "Suites Numériques Avancées",
     langueContenu: "fr",
     paragraphes: [
-      "Convergence, critères (monotonie et bornes, suites adjacentes)",
-      "Suites arithmétiques, géométriques, arithmético-géométriques",
-      "Suites récurrentes u_(n+1) = f(u_n) : étude graphique, points fixes, convergence",
-      "Suites récurrentes linéaires d'ordre 2",
-      "Utilisation des équivalents et négligeabilités pour les limites"
+      "Étude de la convergence de suites récurrentes linéaires d'ordre 2 ($au_{n+2}+bu_{n+1}+cu_n=0$).",
+      "Détermination de la nature et de la limite d'une suite définie par une somme ou un produit.",
+      "Utilisation des suites adjacentes pour prouver la convergence et encadrer la limite.",
+      "Étude de suites implicites définies par une équation ($f_n(x)=0$).",
+      "Convergence et calcul de la somme d'une série géométrique dérivée."
     ]
   },
   {
-    titreLecon: "Fonctions Usuelles (Logarithmes, Exponentielles, Puissances, Trigonométriques et Réciproques)",
+    titreLecon: "Calcul Intégral et Équations Différentielles",
     langueContenu: "fr",
     paragraphes: [
-      "Propriétés et étude des fonctions ln, exp, x ↦ a^x, x ↦ x^α",
-      "Fonctions trigonométriques (sin, cos, tan) et leurs réciproques (Arcsin, Arccos, Arctan) : définitions, domaines, dérivées, graphes",
-      "Fonctions hyperboliques (sh, ch, th) et leurs réciproques (Argsh, Argch, Argth) - (plus fréquent dans les concours type ENSAM/ENSA)",
-      "Croissances comparées"
+      "Intégration par parties multiples pour des fonctions comme $x^n e^x$ ou $x^n \\cos(x)$.",
+      "Calcul d'intégrales par changement de variable (trigonométrique ou hyperbolique).",
+      "Décomposition en éléments simples de fractions rationnelles pour l'intégration.",
+      "Résolution d'équations différentielles du second ordre avec second membre polynomial ou trigonométrique.",
+      "Calcul de volumes de solides de révolution autour de l'axe (Oy)."
     ]
   },
-  {
-    titreLecon: "Calcul Intégral et Applications",
-    langueContenu: "fr",
-    paragraphes: [
-      "Primitives, intégrales définies, propriétés",
-      "Techniques d'intégration : intégration par parties, changement de variable",
-      "Intégration de fonctions rationnelles (décomposition en éléments simples)",
-      "Calcul d'aires planes, volumes de solides de révolution",
-      "Longueur d'un arc de courbe (parfois)",
-      "Intégrales impropres (étude de convergence simple)"
-    ]
-  },
-  {
-    titreLecon: "Équations Différentielles",
-    langueContenu: "fr",
-    paragraphes: [
-      "Équations différentielles linéaires du premier ordre y' + a(x)y = b(x)",
-      "Équations différentielles linéaires du second ordre à coefficients constants ay'' + by' + cy = f(x)",
-      "Résolution avec conditions initiales (problème de Cauchy)"
-    ]
-  },
-  {
-    titreLecon: "Développements Limités (si inclus spécifiquement pour ENSAM)",
-    langueContenu: "fr",
-    paragraphes: [
-      "Formule de Taylor-Young",
-      "DL usuels au voisinage de 0 (e^x, sin x, cos x, ln(1+x), (1+x)^α, tan x, Arctan x, Argsh x, etc.)",
-      "Opérations sur les DL (somme, produit, quotient, composition, intégration, dérivation)",
-      "Applications : calcul de limites, asymptotes, position relative, étude de points singuliers"
-    ]
-  },
-
   // ===================================
-  //     ALGÈBRE ET GÉOMÉTRIE (الجبر والهندسة)
+  // ALGÈBRE ET GÉOMÉTRIE
   // ===================================
   {
-    titreLecon: "Nombres Complexes",
+    titreLecon: "Nombres Complexes et Géométrie",
     langueContenu: "fr",
     paragraphes: [
-      "Toutes les formes et opérations",
-      "Module, argument, formules de Moivre et d'Euler",
-      "Applications à la trigonométrie (linéarisation, factorisation)",
-      "Racines n-ièmes, résolution d'équations polynomiales",
-      "Transformations géométriques du plan complexe (translation, homothétie, rotation, similitude directe)"
+      "Résolution d'équations polynomiales complexes en utilisant les racines n-ièmes de l'unité.",
+      "Interprétation géométrique des transformations complexes (similitudes directes et indirectes).",
+      "Utilisation des nombres complexes pour résoudre des problèmes de géométrie plane (alignement, concours, lieux de points).",
+      "Linéarisation de $\\cos^n(x)$ et factorisation de polynômes trigonométriques."
     ]
   },
   {
-    titreLecon: "Arithmétique dans Z (Bases)",
+    titreLecon: "Algèbre Linéaire",
     langueContenu: "fr",
     paragraphes: [
-      "Divisibilité, PGCD, PPCM, algorithme d'Euclide",
-      "Théorèmes de Bézout et de Gauss",
-      "Nombres premiers",
-      "Congruences (applications simples)"
-    ]
-  },
-  {
-    titreLecon: "Structures Algébriques (Notions)",
-    langueContenu: "fr",
-    paragraphes: [
-      "Groupes (définition, exemples simples)",
-      "Anneaux et Corps (définitions, exemples Z, Q, R, C)"
-    ]
-  },
-  {
-    titreLecon: "Polynômes et Fractions Rationnelles",
-    langueContenu: "fr",
-    paragraphes: [
-      "Opérations, division euclidienne, racines, multiplicité",
-      "Relations coefficients-racines",
-      "Décomposition en éléments simples des fractions rationnelles (essentiel pour l'intégration)"
-    ]
-  },
-  {
-    titreLecon: "Algèbre Linéaire : Espaces Vectoriels, Applications Linéaires, Matrices",
-    langueContenu: "fr",
-    paragraphes: [
-      "Espaces vectoriels (R^n, espaces de matrices, de polynômes)",
-      "Sous-espaces vectoriels, familles libres/génératrices, bases, dimension",
-      "Applications linéaires, noyau, image, rang, théorème du rang",
-      "Matrices : opérations, transposée, trace, inverse",
-      "Déterminants (calcul et propriétés)",
-      "Systèmes d'équations linéaires (méthode de Gauss, discussion selon les paramètres)"
-      // "Réduction des endomorphismes (valeurs propres, vecteurs propres, diagonalisation - si niveau ENSAM l'exige, souvent plus léger qu'ENSA)"
+      "Calcul de déterminants de taille 3x3 et 4x4 et application à l'inversibilité d'une matrice.",
+      "Résolution de systèmes linéaires à paramètres en utilisant le rang ou les déterminants (formules de Cramer).",
+      "Détermination du noyau et de l'image d'une application linéaire définie par sa matrice.",
+      "Calcul des valeurs propres et des vecteurs propres d'une matrice 2x2 ou 3x3 simple.",
+      "Discussion de la diagonalisabilité d'une matrice."
     ]
   },
   {
     titreLecon: "Géométrie Analytique de l'Espace",
     langueContenu: "fr",
     paragraphes: [
-      "Produit scalaire, vectoriel, mixte et leurs applications (orthogonalité, colinéarité, coplanarité, aires, volumes)",
-      "Représentations de droites et plans",
-      "Positions relatives, intersections",
-      "Distances (point-droite, point-plan, droite-droite)",
-      "Sphères et plans tangents",
-      "Étude de courbes paramétrées simples dans l'espace (tangente, longueur)",
-      "Surfaces quadriques (cylindre, cône, paraboloïde, ellipsoïde - identification et sections planes, si pertinent)"
+      "Utilisation du produit mixte pour calculer le volume d'un tétraèdre ou vérifier la coplanarité.",
+      "Détermination de l'équation d'un cylindre ou d'un cône de révolution.",
+      "Intersection de trois plans et discussion géométrique du système associé.",
+      "Calcul de la distance entre deux droites non coplanaires.",
+      "Projection orthogonale d'un point sur une droite ou un plan."
     ]
   },
-
   // ===================================
-  //      PROBABILITÉS (الاحتمالات)
+  // PROBABILITÉS
   // ===================================
   {
-    titreLecon: "Dénombrement",
+    titreLecon: "Probabilités et Variables Aléatoires",
     langueContenu: "fr",
     paragraphes: [
-      "Principes fondamentaux",
-      "Arrangements, permutations, combinaisons",
-      "Formule du binôme",
-      "Problèmes de dénombrement variés"
-    ]
-  },
-  {
-    titreLecon: "Probabilités",
-    langueContenu: "fr",
-    paragraphes: [
-      "Espace probabilisé, événements",
-      "Probabilité conditionnelle, indépendance",
-      "Formule des probabilités totales, formule de Bayes",
-      "Variables aléatoires discrètes : loi, espérance, variance, écart-type",
-      "Lois usuelles discrètes (Bernoulli, binomiale)",
-      "Variables aléatoires continues : densité, fonction de répartition, espérance, variance",
-      "Lois usuelles continues (uniforme, exponentielle, normale - utilisation de la loi normale centrée réduite)"
+      "Dénombrement dans des situations complexes (anagrammes avec répétitions, partages).",
+      "Application de la formule de Bayes à des problèmes de diagnostic ou de test.",
+      "Étude d'une variable aléatoire continue définie par sa fonction de densité.",
+      "Calcul de l'espérance et de la variance pour une variable aléatoire suivant une loi exponentielle ou normale.",
+      "Approximation d'une loi binomiale par une loi de Poisson ou une loi normale."
     ]
   }
 ];

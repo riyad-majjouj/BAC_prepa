@@ -1,3 +1,5 @@
+// back-end/controllers/devoirController.js
+
 const Devoir = require('../models/Devoir');
 const mongoose = require('mongoose');
 
@@ -16,8 +18,8 @@ const getAllDevoirsForAdmin = async (req, res) => {
             .populate('academicLevel', 'name')
             .populate('track', 'name')
             .populate('subject', 'name')
-            // لا نرسل كل تفاصيل الأسئلة في القائمة الرئيسية لتخفيف الحمل
-            .select('-problems') 
+            // لا نرسل كل تفاصيل المكونات في القائمة الرئيسية لتخفيف الحمل
+            .select('-components') 
             .limit(Number(limit))
             .skip((Number(page) - 1) * Number(limit))
             .sort({ createdAt: -1 })
@@ -75,12 +77,22 @@ const createDevoir = async (req, res) => {
 // @access  Private/Admin
 const updateDevoir = async (req, res) => {
     try {
-        const updatedDevoir = await Devoir.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
-        if (!updatedDevoir) {
+        // الخطوة 1: العثور على المستند أولاً
+        const devoir = await Devoir.findById(req.params.id);
+
+        if (!devoir) {
             return res.status(404).json({ message: 'Devoir not found.' });
         }
+
+        // الخطوة 2: تحديث الحقول في الذاكرة باستخدام البيانات الجديدة من الواجهة
+        Object.assign(devoir, req.body);
+
+        // الخطوة 3: حفظ المستند المُعدَّل. هذا سيؤدي إلى تشغيل middleware `pre('save')`
+        const updatedDevoir = await devoir.save();
+        
         res.json(updatedDevoir);
     } catch (error) {
+         console.error("Error updating devoir:", error);
          res.status(400).json({ message: 'Error updating devoir', error: error.message });
     }
 };

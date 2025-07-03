@@ -2,101 +2,95 @@
 
 const mongoose = require('mongoose');
 
-// مخطط فرعي للأسئلة الفرعية الأصلية (كما تم إنشاؤها بواسطة AI أو مأخوذة من DB)
-const OriginalSubQuestionSchema = new mongoose.Schema({
-    text: { type: String, required: true },
-    difficultyOrder: { type: Number, required: true },
-    points: { type: Number, required: true },
-    type: {
-        type: String,
-        enum: ['free_text', 'mcq', 'true_false', 'match_arrows', 'fill_table'],
-        default: 'free_text'
-    },
-    options: {
-        type: [String],
-        default: []
-    },
-    correctAnswer: { type: String, default: null },
-    imageUrl: { type: String, required: false, default: null } 
-}, { _id: false });
-
-// مخطط فرعي لإجابات المستخدم على الأسئلة الفرعية
-const SubQuestionAnswerSchema = new mongoose.Schema({
-    subQuestionText: { type: String, required: true }, // نص السؤال الفرعي (للمرجعية)
-    subQuestionOrderInProblem: { type: Number, required: true }, // ترتيبه داخل التمرين
-    subQuestionPoints: { type: Number, required: true }, // النقاط الأصلية للسؤال الفرعي
-    userAnswer: { type: String, trim: true, default: null },
-    aiFeedback: { type: String, default: null },
+// هذا المخطط لا يحتاج تعديلاً لأن userAnswer من نوع Mixed
+const subQuestionAnswerSchema = new mongoose.Schema({
+    subQuestionText: { type: String, required: true },
+    subQuestionOrderInProblem: { type: Number, required: true },
+    subQuestionPoints: { type: Number, default: 0 },
+    userAnswer: { type: mongoose.Schema.Types.Mixed, default: null }, // يستطيع تخزين نص أو كائن
     awardedPoints: { type: Number, default: 0 },
-}, { _id: false });
-
-// مخطط فرعي لكل تمرين/مشكلة داخل الاختبار
-const ProblemAttemptSchema = new mongoose.Schema({
-    problemTitle: { type: String, required: true, trim: true }, // عنوان التمرين
-    problemText: { type: String, required: true, trim: true },   // نص التمرين الرئيسي
-    problemLesson: { type: String, trim: true },                 // الدرس المرتبط (إن وجد)
-    subQuestionsData: [OriginalSubQuestionSchema], // بيانات الأسئلة الفرعية الأصلية
-    orderInExam: { type: Number, required: true }, // ترتيب هذا التمرين في الاختبار
-    subQuestionAnswers: [SubQuestionAnswerSchema], // إجابات المستخدم على الأسئلة الفرعية
-    problemRawScore: { type: Number, default: 0 }, // مجموع نقاط المستخدم لهذا التمرين
-    problemTotalPossibleRawScore: { type: Number, required: true }, // مجموع النقاط الممكنة لهذا التمرين
-    problemId: { type: String, required: true } // معرف فريد للمشكلة (يمكن أن يكون ObjectId أو UUID)
+    aiFeedback: { type: String, default: "Pending grading." },
 });
 
 
-const TimedExamAttemptSchema = new mongoose.Schema({
-    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+// =================================================================
+// ---> تم تعديل هذا المخطط لتخزين بيانات الأسئلة الجديدة للطالب
+// =================================================================
+const subQuestionDataSchema = new mongoose.Schema({
+    text: { type: String, required: true },
+    points: { type: Number, required: true, default: 1 },
+    difficultyOrder: { type: Number, required: true },
+    type: {
+        type: String,
+        required: true,
+        // تمت إضافة الأنواع الجديدة هنا بشكل متوافق مع الواجهات
+        enum: [
+            'free_text',
+            'mcq',
+            'true_false',
+            'true_false_justify',
+            'matching_pairs', // نوع "صل بسهم"
+            'fill_table',     // نوع "املأ الجدول"
+            // الأنواع الأخرى الموجودة مسبقًا
+            'gap_filling',
+            'gap_filling_multiple_choice',
+            'section_title',
+            'instruction_group',
+        ],
+        default: 'free_text'
+    },
+    // حقول للأنواع المختلفة
+    options: [{ type: String }],
+    correctAnswer: { type: mongoose.Schema.Types.Mixed }, // يمكن أن يكون نصاً أو كائناً
+    imageUrl: { type: String, default: null },
+
+    // --- حقول جديدة لـ matching_pairs (صل بسهم) ---
+    group_a_items: [{ type: String }], // القائمة أ
+    group_b_items: [{ type: String }], // القائمة ب
+    correct_matches: { type: mongoose.Schema.Types.Mixed }, // الإجابات الصحيحة
+
+    // --- حقول جديدة لـ fill_table (املأ الجدول) ---
+    table_headers: [{ type: String }], // عناوين الأعمدة
+    table_rows: { type: mongoose.Schema.Types.Mixed }, // هيكل الجدول
+    correct_answers_table: { type: mongoose.Schema.Types.Mixed }, // الإجابات الصحيحة للجدول
+
+    // حقول أخرى موجودة مسبقًا
+    correct_answer_details: { type: mongoose.Schema.Types.Mixed },
+    isWritingPrompt: { type: Boolean, default: false },
+});
+
+const problemSchema = new mongoose.Schema({
+    problemId: { type: String, required: true, default: () => new mongoose.Types.ObjectId().toString() },
+    problemTitle: { type: String, required: true },
+    problemText: { type: String, default: '' },
+    problemLesson: { type: String },
+    orderInExam: { type: Number, required: true },
+    problemTotalPossibleRawScore: { type: Number, default: 0 },
+    problemRawScore: { type: Number, default: 0 },
+    subQuestionsData: [subQuestionDataSchema],
+    subQuestionAnswers: [subQuestionAnswerSchema],
+});
+
+const timedExamAttemptSchema = new mongoose.Schema({
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     academicLevel: { type: mongoose.Schema.Types.ObjectId, ref: 'AcademicLevel', required: true },
     track: { type: mongoose.Schema.Types.ObjectId, ref: 'Track', required: true },
     subject: { type: mongoose.Schema.Types.ObjectId, ref: 'Subject', required: true },
-    difficulty: { // الصعوبة العامة للاختبار
-        type: String,
-        required: true,
-        enum: ['سهل', 'متوسط', 'صعب']
-    },
-    problems: [ProblemAttemptSchema], // مصفوفة من بيانات التمارين وإجابات المستخدم
-    overallRawScore: { type: Number, default: 0 }, // مجموع نقاط المستخدم في الاختبار
-    overallTotalPossibleRawScore: { type: Number, required: true }, // مجموع النقاط الممكنة للاختبار
-    overallScoreOutOf20: { type: Number, default: 0 }, // النتيجة المحولة إلى مقياس من 20
+    difficulty: { type: String, enum: ['سهل', 'متوسط', 'صعب'], required: true },
+    problems: [problemSchema],
+    overallTotalPossibleRawScore: { type: Number, default: 0 },
+    overallRawScore: { type: Number, default: 0 },
+    overallScoreOutOf20: { type: Number, default: 0 },
     timeLimitMinutes: { type: Number, required: true },
     startTime: { type: Date, default: Date.now },
     endTime: { type: Date },
-    status: {
-        type: String,
-        enum: ['in-progress', 'completed', 'timed-out', 'aborted', 'grading-failed'],
-        default: 'in-progress',
-        index: true
-    },
-    config: { // إعدادات الاختبار عند إنشائه
-        numberOfProblems: Number,
-        difficultyApiValue: String, // قيمة API للصعوبة المستخدمة في الإنشاء
-        sourceTitle: String, // عنوان الفرض إذا كان من قاعدة البيانات
-    },
-    source: {
-        type: String,
-        enum: ['ai_generated', 'db_devoir'],
-        required: true
-    },
-    sourceDevoirId: { // سيحتوي على ID الفرض من موديل Devoir إذا كان المصدر هو db_devoir
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Devoir',
-        default: null,
-        index: true
-    },
-    // --- الإضافة الجديدة هنا ---
-    expiresAt: {
-        type: Date,
-        default: undefined // القيمة الافتراضية هي عدم وجود الحقل، فلن يتم حذفه تلقائيا
-    }
-    // --- نهاية الإضافة ---
+    status: { type: String, enum: ['in-progress', 'completed', 'submitted', 'grading-failed', 'time-expired', 'timed-out'], default: 'in-progress' }, // أضفت timed-out للتوافق
+    source: { type: String, enum: ['ai_generated', 'db_devoir'], required: true },
+    sourceDevoirId: { type: mongoose.Schema.Types.ObjectId, ref: 'Devoir', default: null },
+    config: { type: mongoose.Schema.Types.Mixed, default: {} },
+    expiresAt: { type: Date, index: { expires: '5h' } }
+}, {
+    timestamps: true
+});
 
-}, { timestamps: true });
-
-// --- إضافة فهرس TTL هنا ---
-// هذا الفهرس يخبر MongoDB بحذف أي مستند يحتوي على حقل "expiresAt" بعد مرور الوقت المحدد في ذلك الحقل.
-// إذا لم يكن الحقل موجودًا في المستند، فلن يتم حذفه أبدًا بواسطة هذا الفهرس.
-TimedExamAttemptSchema.index({ "expiresAt": 1 }, { expireAfterSeconds: 0 });
-// --- نهاية الإضافة ---
-
-const TimedExamAttempt = mongoose.model('TimedExamAttempt', TimedExamAttemptSchema);
-module.exports = TimedExamAttempt;
+module.exports = mongoose.model('TimedExamAttempt', timedExamAttemptSchema);

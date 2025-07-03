@@ -15,9 +15,112 @@ const mapApiDifficultyToDb = (apiValue) => {
     const mapping = { 'Facile': 'سهل', 'Moyen': 'متوسط', 'Difficile': 'صعب' };
     return Object.values(mapping).includes(apiValue) ? apiValue : (mapping[apiValue] || 'متوسط');
 };
-// back-end/controllers/examController.js
 
-// back-end/controllers/examController.js
+const transformOldProblemsToComponents = (problems) => {
+    const newComponents = [];
+    if (!problems || !Array.isArray(problems)) return [];
+    problems.forEach(problem => {
+        if (problem.title) newComponents.push({ id: crypto.randomUUID(), type: 'exercise_title', text: problem.title });
+        if (problem.context) newComponents.push({ id: crypto.randomUUID(), type: 'paragraph', text: problem.context });
+        if (problem.instructions) {
+            problem.instructions.forEach(instruction => {
+                if (instruction.imageUrl) newComponents.push({ id: crypto.randomUUID(), type: 'image', url: instruction.imageUrl, aiDescription: 'Legacy image - no description provided.' });
+                if (instruction.subQuestions) {
+                    instruction.subQuestions.forEach(sq => {
+                        newComponents.push({
+                            id: crypto.randomUUID(), type: 'question',
+                            text: sq.text || '', points: sq.points || 0,
+                            questionType: sq.questionType || 'free_text',
+                            options: sq.options || [], correctAnswer: sq.correctAnswer || '',
+                        });
+                    });
+                }
+            });
+        }
+    });
+    return newComponents;
+};
+
+// ---> FIX: Transformer now uses `aiDescription` instead of the image URL for the AI.
+// في ملف back-end/controllers/examController.js
+
+const transformComponentsToProblems = (components) => {
+    const problemsForAttempt = [];
+    let currentProblem = null;
+
+    for (const component of components) {
+        if (component.type === 'exercise_title') {
+            // إذا كان هناك تمرين سابق، قم بإضافته إلى القائمة
+            if (currentProblem) {
+                // إضافة محتوى فارغ إذا كان النص فارغًا لتجنب المشاكل
+                if (!currentProblem.problemText.trim()) currentProblem.problemText = '\u200B';
+                problemsForAttempt.push(currentProblem);
+            }
+            // بدء تمرين جديد
+            currentProblem = {
+                problemTitle: component.text || `تمرين ${problemsForAttempt.length + 1}`,
+                problemText: '',
+                subQuestionsData: [],
+                problemId: new mongoose.Types.ObjectId().toString(),
+            };
+        } else if (currentProblem) {
+            // إذا لم يكن عنوان تمرين، أضف المكون إلى التمرين الحالي
+            switch (component.type) {
+                case 'paragraph':
+                    currentProblem.problemText += (currentProblem.problemText ? '\n\n' : '') + component.text;
+                    break;
+                case 'image':
+                    const imageMarkerForStudent = `[IMAGE:${component.url}]`;
+                    const descriptionForAI = component.aiDescription 
+                        ? `\n\n--- Image Context (Described by Instructor) ---\n${component.aiDescription}\n--- End Image Context ---`
+                        : '';
+                    currentProblem.problemText += (currentProblem.problemText ? '\n\n' : '') + imageMarkerForStudent + descriptionForAI;
+                    break;
+                case 'question':
+                    // --- بداية التعديل الرئيسي ---
+                    // هنا نقوم بنقل كل بيانات السؤال، بما في ذلك الحقول الجديدة
+                    const subQuestionPayload = {
+                        text: component.text || '(Question text is missing)',
+                        points: component.points || 0,
+                        difficultyOrder: (currentProblem.subQuestionsData.length) + 1,
+                        type: component.questionType,
+                        // الحقول العامة
+                        options: component.options || [],
+                        correctAnswer: component.correctAnswer,
+                        imageUrl: null, // هذا لم يعد مستخدماً في بنية المكونات
+
+                        // حقول خاصة بنوع matching_pairs
+                        group_a_items: component.groupA || [],
+                        group_b_items: component.groupB || [],
+                        correct_matches: component.correctMatches || {},
+                        
+                        // حقول خاصة بنوع fill_table
+                        table_headers: component.tableHeaders || [],
+                        table_rows: component.tableRows || [],
+                        correct_answers_table: component.tableCorrectAnswers || {},
+                    };
+                    currentProblem.subQuestionsData.push(subQuestionPayload);
+                    // --- نهاية التعديل الرئيسي ---
+                    break;
+            }
+        }
+    }
+
+    // إضافة التمرين الأخير إذا كان موجودًا
+    if (currentProblem) {
+        if (!currentProblem.problemText.trim()) currentProblem.problemText = '\u200B';
+        problemsForAttempt.push(currentProblem);
+    }
+    
+    // حساب النقاط لكل تمرين وتعيين الترتيب
+    return problemsForAttempt.map((p, index) => ({
+        ...p,
+        orderInExam: index + 1, // تم تغييره من problemOrderInExam إلى orderInExam للتوافق
+        problemTotalPossibleRawScore: p.subQuestionsData.reduce((sum, sq) => sum + (sq.points || 0), 0)
+    }));
+};
+
+// في ملف back-end/controllers/examController.js
 
 const startExam = asyncHandler(async (req, res) => {
     const { academicLevelId, trackId, subjectId, difficulty: difficultyApiValue } = req.body;
@@ -29,9 +132,8 @@ const startExam = asyncHandler(async (req, res) => {
 
     const difficultyDbValue = mapApiDifficultyToDb(difficultyApiValue);
     
-    // --- منطق العشوائية واختيار المصدر ---
     let devoirFromDb = null;
-    const PROBABILITY_TO_USE_DB = 0.7; // 70% for DB
+    const PROBABILITY_TO_USE_DB = 0.9;
 
     const potentialDevoirsCount = await Devoir.countDocuments({
         academicLevel: new mongoose.Types.ObjectId(academicLevelId),
@@ -63,36 +165,26 @@ const startExam = asyncHandler(async (req, res) => {
     }
 
     if (devoirFromDb) {
-        // --- المسار الأول: استخدام فرض من قاعدة البيانات (لا يتغير) ---
         console.log(`[EXAM_CTRL_DECISION] Final Decision: Using DB Devoir. ID: ${devoirFromDb._id}`);
-        if (!devoirFromDb.problems?.length) {
-            res.status(500); throw new Error('DB Devoir found but it has no problems.');
+        
+        const componentsToProcess = devoirFromDb.components;
+        
+        if (!componentsToProcess || componentsToProcess.length === 0) {
+            res.status(500); throw new Error('DB Devoir is malformed and contains no usable content.');
+        }
+
+        // هنا نستخدم الدالة المعدلة
+        const problemsForAttempt = transformComponentsToProblems(componentsToProcess);
+        
+        if (problemsForAttempt.length === 0) {
+            res.status(500); throw new Error('Failed to transform Devoir components into a valid exam structure.');
         }
 
         const examAttempt = new TimedExamAttempt({
             user: userId, academicLevel: academicLevelId, track: trackId, subject: subjectId, difficulty: difficultyDbValue,
-            problems: devoirFromDb.problems.map((problem, index) => {
-                let uniqueOrderCounter = 1;
-                return {
-                    problemTitle: problem.title,
-                    problemText: problem.context,
-                    orderInExam: index + 1,
-                    subQuestionsData: (problem.instructions || []).flatMap(instruction =>
-                        (instruction.subQuestions || []).map(sq => ({
-                            text: `${instruction.title}\n${sq.text}`,
-                            points: sq.points,
-                            difficultyOrder: uniqueOrderCounter++,
-                            type: sq.questionType,
-                            options: sq.options || [],
-                            correctAnswer: sq.correctAnswer,
-                            imageUrl: instruction.imageUrl || null,
-                        }))
-                    ),
-                    problemTotalPossibleRawScore: (problem.instructions || []).reduce((sum, i) => sum + (i.subQuestions || []).reduce((subSum, sq) => subSum + (sq.points || 0), 0), 0),
-                    problemId: new mongoose.Types.ObjectId().toString(),
-                };
-            }),
-            overallTotalPossibleRawScore: devoirFromDb.totalPoints, timeLimitMinutes: devoirFromDb.timeLimitMinutes,
+            problems: problemsForAttempt,
+            overallTotalPossibleRawScore: devoirFromDb.totalPoints,
+            timeLimitMinutes: devoirFromDb.timeLimitMinutes,
             status: 'in-progress', source: 'db_devoir', sourceDevoirId: devoirFromDb._id,
             config: { difficultyApiValue, sourceTitle: devoirFromDb.title },
         });
@@ -100,21 +192,34 @@ const startExam = asyncHandler(async (req, res) => {
         const createdAttempt = await examAttempt.save();
         console.log(`[EXAM_CTRL_SUCCESS] DB Devoir attempt ${createdAttempt._id} created for user ${userId}.`);
         
+        // --- بداية التعديل الرئيسي ---
+        // هنا نقوم بتمرير البيانات الكاملة للواجهة الأمامية
         const problemsForDisplay = createdAttempt.problems.map(p => ({
-            problemId: p.problemId, problemOrderInExam: p.orderInExam, problemTitle: p.problemTitle, problemText: p.problemText,
+            problemId: p.problemId,
+            problemOrderInExam: p.orderInExam,
+            problemTitle: p.problemTitle,
+            problemText: p.problemText,
             problemTotalPossibleScore: p.problemTotalPossibleRawScore,
             subQuestions: p.subQuestionsData.map(sq => ({
-                text: sq.text, points: sq.points, orderInProblem: sq.difficultyOrder,
+                text: sq.text,
+                points: sq.points,
+                orderInProblem: sq.difficultyOrder,
                 type: sq.type,
                 options: sq.options,
                 imageUrl: sq.imageUrl,
+                // تمرير الحقول الجديدة
+                group_a_items: sq.group_a_items,
+                group_b_items: sq.group_b_items,
+                table_headers: sq.table_headers,
+                table_rows: sq.table_rows,
             }))
         }));
+        // --- نهاية التعديل الرئيسي ---
 
         return res.status(201).json({ examAttemptId: createdAttempt._id, problems: problemsForDisplay, timeLimitMinutes: createdAttempt.timeLimitMinutes, startTime: createdAttempt.startTime.toISOString() });
 
     } else {
-        // --- المسار الثاني: إنشاء اختبار مؤقت بالذكاء الاصطناعي (هنا التعديل) ---
+        // ... (الجزء الخاص بإنشاء امتحان بالذكاء الاصطناعي لا يتغير)
         console.log(`[EXAM_CTRL_DECISION] Final Decision: Using AI Generation.`);
         
         const generatedProblemsPayload = await generateFullExamSetData(academicLevelId, trackId, subjectId, difficultyApiValue);
@@ -135,10 +240,8 @@ const startExam = asyncHandler(async (req, res) => {
             }
         } catch (configError) { console.warn(`Error loading exam config: ${configError.message}`); }
 
-        // حساب تاريخ انتهاء الصلاحية (300 دقيقة من الآن)
         const expirationDate = new Date();
         expirationDate.setMinutes(expirationDate.getMinutes() + 300); 
-        console.log(`[EXAM_CTRL_AI] This AI-generated exam is temporary and will expire at: ${expirationDate.toISOString()}`);
 
         const examAttempt = new TimedExamAttempt({
             user: userId, academicLevel: academicLevelId, track: trackId, subject: subjectId, difficulty: difficultyDbValue,
@@ -161,7 +264,6 @@ const startExam = asyncHandler(async (req, res) => {
             source: 'ai_generated', 
             sourceDevoirId: null,
             config: { numberOfProblems: generatedProblemsPayload.length, difficultyApiValue },
-            // إضافة حقل انتهاء الصلاحية فقط للاختبارات المنشأة من AI
             expiresAt: expirationDate,
         });
 
@@ -169,7 +271,10 @@ const startExam = asyncHandler(async (req, res) => {
         console.log(`[EXAM_CTRL_SUCCESS] AI-Generated temporary attempt ${createdAttempt._id} created for user ${userId}.`);
 
         const problemsForDisplay = createdAttempt.problems.map(p => ({
-            problemId: p.problemId, problemOrderInExam: p.orderInExam, problemTitle: p.problemTitle, problemText: p.problemText,
+            problemId: p.problemId,
+            problemOrderInExam: p.orderInExam,
+            problemTitle: p.problemTitle,
+            problemText: p.problemText,
             problemTotalPossibleScore: p.problemTotalPossibleRawScore,
             subQuestions: p.subQuestionsData.map(sq => ({
                 text: sq.text, points: sq.points, orderInProblem: sq.difficultyOrder,
@@ -183,13 +288,6 @@ const startExam = asyncHandler(async (req, res) => {
     }
 });
 
-
-// ... (بقية دوال المتحكم: submitExam, getExamAttemptResults, etc. تبقى كما هي)
-
-
-// @desc    Submit answers for a timed exam
-// @route   POST /api/exams/:attemptId/submit
-// @access  Private
 const submitExam = asyncHandler(async (req, res) => {
     const { attemptId } = req.params;
     const { problemAnswers } = req.body;
@@ -258,11 +356,8 @@ const submitExam = asyncHandler(async (req, res) => {
         });
     }
 });
+// في ملف back-end/controllers/examController.js
 
-
-// @desc    Get results for a timed exam attempt
-// @route   GET /api/exams/:attemptId/results
-// @access  Private
 const getExamAttemptResults = asyncHandler(async (req, res) => {
     const { attemptId } = req.params;
     const userId = req.user._id.toString();
@@ -299,31 +394,50 @@ const getExamAttemptResults = asyncHandler(async (req, res) => {
         startTime: examAttempt.startTime.toISOString(),
         endTime: examAttempt.endTime ? examAttempt.endTime.toISOString() : null,
         status: examAttempt.status,
-        source: examAttempt.source, // إرسال المصدر للواجهة
-        sourceTitle: examAttempt.config?.sourceTitle, // إرسال عنوان الفرض إذا كان المصدر من DB
-        problems: examAttempt.problems.map(problem => ({
-            problemId: problem.problemId,
-            problemOrderInExam: problem.orderInExam,
-            problemText: problem.problemText,
-            problemLesson: problem.problemLesson,
-            problemTotalPossibleRawScore: problem.problemTotalPossibleRawScore,
-            problemRawScore: problem.problemRawScore,
-            subQuestionAttempts: problem.subQuestionAnswers.map(sqAns => ({
-                text: sqAns.subQuestionText,
-                orderInProblem: sqAns.subQuestionOrderInProblem,
-                pointsPossible: sqAns.subQuestionPoints,
-                userAnswer: sqAns.userAnswer,
-                aiFeedback: sqAns.aiFeedback,
-                awardedPoints: sqAns.awardedPoints,
-            }))
-        }))
+        source: examAttempt.source,
+        sourceTitle: examAttempt.config?.sourceTitle,
+        problems: examAttempt.problems.map(problem => {
+            // --- بداية التعديل ---
+            // إنشاء خريطة (Map) للوصول السريع إلى بيانات السؤال الأصلي
+            const subQuestionsDataMap = new Map(problem.subQuestionsData.map(sqd => [sqd.difficultyOrder, sqd]));
+            
+            return {
+                problemId: problem.problemId,
+                problemOrderInExam: problem.orderInExam,
+                problemText: problem.problemText,
+                problemLesson: problem.problemLesson,
+                problemTotalPossibleRawScore: problem.problemTotalPossibleRawScore,
+                problemRawScore: problem.problemRawScore,
+                subQuestionAttempts: problem.subQuestionAnswers.map(sqAns => {
+                    const originalSqData = subQuestionsDataMap.get(sqAns.subQuestionOrderInProblem);
+
+                    return {
+                        // بيانات من الإجابة
+                        userAnswer: sqAns.userAnswer,
+                        aiFeedback: sqAns.aiFeedback,
+                        awardedPoints: sqAns.awardedPoints,
+
+                        // بيانات من السؤال الأصلي
+                        text: originalSqData?.text || sqAns.subQuestionText,
+                        orderInProblem: sqAns.subQuestionOrderInProblem,
+                        pointsPossible: originalSqData?.points ?? sqAns.subQuestionPoints,
+                        type: originalSqData?.type,
+                        correctAnswer: originalSqData?.correctAnswer,
+                        group_a_items: originalSqData?.group_a_items,
+                        group_b_items: originalSqData?.group_b_items,
+                        correct_matches: originalSqData?.correct_matches,
+                        table_headers: originalSqData?.table_headers,
+                        table_rows: originalSqData?.table_rows,
+                        correct_answers_table: originalSqData?.correct_answers_table,
+                    };
+                })
+            }
+            // --- نهاية التعديل ---
+        })
     };
     res.status(200).json(resultsToSend);
 });
 
-// @desc    Get user's exam history
-// @route   GET /api/exams/history
-// @access  Private
 const getExamHistoryForUser = asyncHandler(async (req, res) => {
     const attempts = await TimedExamAttempt.find({ user: req.user._id })
         .populate('subject', 'name')
@@ -347,9 +461,6 @@ const getExamHistoryForUser = asyncHandler(async (req, res) => {
     })));
 });
 
-// @desc    Delete an exam attempt
-// @route   DELETE /api/exams/:attemptId
-// @access  Private (User can delete their own, admin can delete any)
 const deleteExamAttempt = asyncHandler(async (req, res) => {
     const { attemptId } = req.params;
 
@@ -371,7 +482,6 @@ const deleteExamAttempt = asyncHandler(async (req, res) => {
     console.log(`[EXAM_CTRL_DELETE] Exam attempt ${attemptId} deleted by user ${req.user._id}.`);
     res.status(200).json({ message: 'Exam attempt deleted successfully.' });
 });
-
 
 module.exports = {
     startExam,

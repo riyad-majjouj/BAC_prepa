@@ -1,125 +1,74 @@
-require('dotenv').config();
-const { GEMINI_API_KEYS, buildGeminiApiUrl } = require('./aiGeneralQuestionGeneratorShared');
-const { jsonrepair } = require('jsonrepair');
+// --- back-end/utils/promptHelpers.js ---
+
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+
+// --- بداية التعديل المطلوب: إدارة المفاتيح والتبديل ---
+// 1. تحميل جميع المفاتيح المرقمة من ملف .env
+const GEMINI_API_KEYS = Object.keys(process.env)
+    .filter(key => key.startsWith('GEMINI_API_KEY_'))
+    .sort()
+    .map(key => process.env[key]);
+
+if (GEMINI_API_KEYS.length === 0) {
+    console.error("[AI_CORE_FATAL] No GEMINI_API_KEY_n keys found in .env file! AI functionalities will not work.");
+} else {
+    console.log(`[AI_CORE_INFO] Loaded ${GEMINI_API_KEYS.length} Gemini API keys.`);
+}
+
 
 /**
- * دالة تتصل بـ Gemini API مع نظام إعادة المحاولة باستخدام مفاتيح متعددة.
- * هذه الدالة مكتوبة بشكل صحيح وتقوم بعملها كما هو متوقع.
- * @param {string} promptText - نص البرومبت.
- * @param {object} generationConfig - إعدادات التوليد (مثل temperature و maxOutputTokens).
- * @param {string} modelType - نوع النموذج.
- * @returns {Promise<string>} - نص الاستجابة الخام من الـ API عند النجاح.
- * @throws {Error} - يرمي خطأ بعد فشل جميع المفاتيح.
+ * يتصل بـ Gemini API مع منطق إعادة المحاولة باستخدام مفاتيح متعددة.
+ * @returns {Promise<string>} النص الخام للاستجابة من Gemini.
+ * @throws {Error} يطلق خطأ إذا فشلت جميع مفاتيح API.
  */
-async function fetchGeminiWithConfig(promptText, generationConfig, modelType = 'gemini-1.5-flash-latest') {
-    if (!GEMINI_API_KEYS || GEMINI_API_KEYS.length === 0) {
-        throw new Error("AI Service configuration error: No API keys loaded from .env file.");
+async function fetchGeminiWithConfig(prompt, generationConfig, modelType, imageUrl = null) {
+    if (imageUrl) {
+        console.warn(`[PROMPT_HELPER_WARN] An imageUrl was provided, but image processing is currently disabled.`);
+    }
+
+    if (GEMINI_API_KEYS.length === 0) {
+        throw new Error("No Gemini API keys are configured.");
     }
 
     let lastError = null;
 
-    for (const [index, apiKey] of GEMINI_API_KEYS.entries()) {
-        const currentGeminiApiUrl = buildGeminiApiUrl(apiKey, modelType);
-        console.log(`[FETCH_GEMINI] Attempting API call with key index: ${index}`);
-
-        const fetchOptions = {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: promptText }] }],
-                // يتم دمج الإعدادات الافتراضية مع الإعدادات المخصصة التي تم تمريرها.
-                // هذا يسمح للمستدعي (مثل generateAIQuestion) بتحديد maxOutputTokens.
-                generationConfig: {
-                    temperature: 0.7, // قيمة افتراضية
-                    maxOutputTokens: 8192, // قيمة افتراضية عليا وآمنة
-                    responseMimeType: "application/json",
-                    ...generationConfig, // الإعدادات الممررة من الخارج ستقوم بتجاوز القيم الافتراضية
-                },
-                safetySettings: [
-                    { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                    { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                    { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                    { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                ],
-            }),
-        };
-
+    // 2. الدوران على كل مفتاح وتجربته
+    for (const apiKey of GEMINI_API_KEYS) {
         try {
-            const response = await fetch(currentGeminiApiUrl, fetchOptions);
-            const rawResponseBodyText = await response.text();
+            console.log(`[AI_ATTEMPT] Trying API key ending in "...${apiKey.slice(-4)}"`);
 
-            if (response.ok) {
-                console.log(`[FETCH_GEMINI] Success with key index: ${index}`);
-                return rawResponseBodyText;
-            }
+            const genAI = new GoogleGenerativeAI(apiKey);
+            const model = genAI.getGenerativeModel({ model: modelType });
             
-            lastError = new Error(`Gemini API request failed with key index ${index} (Status: ${response.status}). Body: ${rawResponseBodyText.substring(0, 500)}`);
-            console.warn(lastError.message);
+            const promptParts = [{ text: prompt }];
+
+            const result = await model.generateContent({
+                contents: [{ role: 'user', parts: promptParts }],
+                generationConfig,
+            });
+
+            const response = await result.response;
+            console.log(`[AI_SUCCESS] Successfully received response with key ending in "...${apiKey.slice(-4)}"`);
+            
+            // 3. عند النجاح، قم بإرجاع النتيجة وإنهاء الدالة فورًا
+            return response.text();
 
         } catch (error) {
-            lastError = new Error(`Network error during fetch with key index ${index}: ${error.message}`);
-            console.warn(lastError.message);
+            // 4. عند الفشل، سجل الخطأ واستمر للمفتاح التالي
+            console.error(`[AI_FAILURE] API key ending in "...${apiKey.slice(-4)}" failed. Error: ${error.message}.`);
+            lastError = error; 
         }
     }
 
-    console.error("[FETCH_GEMINI_FATAL] All Gemini API keys failed.");
-    throw lastError || new Error("All available Gemini API keys failed to get a successful response.");
+    // 5. إذا انتهت الحلقة، فهذا يعني أن كل المفاتيح قد فشلت
+    console.error("[AI_FATAL] All available Gemini API keys failed.");
+    throw new Error(`All API keys failed. Last recorded error: ${lastError ? lastError.message : 'Unknown error'}`);
 }
 
+// --- نهاية التعديل ---
 
-/**
- * دالة قوية لمعالجة وتحليل JSON من استجابات الذكاء الاصطناعي باستخدام مكتبة الإصلاح.
- * هذه الدالة غير مستخدمة مباشرة من قبل `generateAIQuestion` (الذي يستخدم robustJsonExtractor)
- * ولكنها ممتازة ومتاحة للاستخدام في وظائف أخرى. لا تحتاج لتعديل.
- */
-async function processStepOutput(rawAiResponseText, outputProcessor = null, context = {}) {
-    let extractedText = '';
-    
-    try {
-        try {
-            const parsedResponse = JSON.parse(rawAiResponseText);
-            if (parsedResponse.candidates && parsedResponse.candidates[0]?.content?.parts?.[0]?.text) {
-                extractedText = parsedResponse.candidates[0].content.parts[0].text;
-            } else {
-                extractedText = rawAiResponseText;
-            }
-        } catch (e) {
-            extractedText = rawAiResponseText;
-        }
-
-        const markdownMatch = extractedText.match(/```(?:json)?\s*([\s\S]*?)\s*```/s);
-        if (markdownMatch && markdownMatch[1]) {
-            extractedText = markdownMatch[1];
-        } else {
-            extractedText = extractedText.trim();
-        }
-
-        if (!extractedText) {
-            console.error("[PROCESS_STEP_OUTPUT_ERROR] Extracted text is empty. Raw Response:", rawAiResponseText);
-            throw new Error("Cannot process empty AI response for JSON output.");
-        }
-
-        const repairedJsonString = jsonrepair(extractedText);
-        const stepOutputJson = JSON.parse(repairedJsonString);
-
-        if (outputProcessor && typeof outputProcessor === 'function') {
-            return await outputProcessor(stepOutputJson, context);
-        }
-        return stepOutputJson;
-
-    } catch (error) {
-        console.error(`[PROCESS_STEP_OUTPUT_ERROR] Final JSON parsing failed after repair. Error: ${error.message}`);
-        console.error("====================== RAW AI RESPONSE (CAUSING ERROR) ======================");
-        console.error(rawAiResponseText);
-        console.error("====================== EXTRACTED TEXT (BEFORE REPAIR) ======================");
-        console.error(extractedText); 
-        console.error("=========================================================================");
-        throw new Error(`Failed to process AI response even after repair: ${error.message}`);
-    }
-}
-
+// processStepOutput لم تكن موجودة هنا أصلاً، لذا لن نضيفها.
 
 module.exports = {
-    fetchGeminiWithConfig,
-    processStepOutput,
+    fetchGeminiWithConfig
 };

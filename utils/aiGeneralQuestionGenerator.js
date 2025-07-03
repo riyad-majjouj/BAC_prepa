@@ -54,7 +54,7 @@ function robustJsonExtractor(rawResponseText) {
 
 
 const practiceQuestionTaskFlavors = [
-    { id: "mcq_direct_application", type: "mcq", description: "An MCQ requiring direct application of a formula, rule, or definition commonly seen in Moroccan exams." },
+    { id: "mcq_direct_application", type: "mcq", description: "An MCQ requiring complexe simplification to application of a formula, rule, or definition commonly seen in Moroccan exams." },
     { id: "mcq_conceptual_distinction", type: "mcq", description: "An MCQ that tests the ability to distinguish between closely related concepts, a frequent exam challenge." },
     { id: "mcq_problem_analysis", type: "mcq", description: "An MCQ based on a short scenario or data set requiring analysis to choose the correct answer, exam-style." },
     { id: "mcq_identify_error", type: "mcq", description: "An MCQ where the student must identify an error in a given statement or calculation, similar to critical thinking exam questions." },
@@ -266,36 +266,84 @@ Respond ONLY with the JSON object, enclosed in \`\`\`json ... \`\`\`, without an
     }
 };
 
-const generateDetailedAnswerWithAI = async (questionText, questionType, subjectNameForPrompt, explanationLanguage = "ar", correctAnswerDB = null, userAnswer = null) => {
-    const targetLanguageInstruction = explanationLanguage === "en" ? "The detailed explanation MUST BE EXCLUSIVELY IN ENGLISH." : explanationLanguage === "fr" ? "L'explication détaillée doit être EXCLUSIVEMENT EN FRANÇAIS." : "الشرح المفصل يجب أن يكون حصريًا باللغة العربية الفصحى.";
+// ... (افترض وجود دوال مثل fetchGeminiWithConfig و robustJsonExtractor)
+
+/**
+ * Generates a detailed, pedagogical explanation for a given question using an AI model.
+ * The explanation will be structured with Markdown and will use LaTeX for mathematical expressions.
+// ... افترض وجود دوال مثل fetchGeminiWithConfig و robustJsonExtractor
+
+/**
+ * Generates a detailed, pedagogical explanation for a given question using an AI model.
+ * This version includes strict instructions for JSON-safe LaTeX escaping.
+ * 
+ * @param {string} questionText The text of the question.
+ * @param {string} questionType The type of the question (e.g., 'mcq', 'free_text').
+ * @param {string} subjectNameForPrompt The subject name to provide context to the AI.
+ * @param {string} [explanationLanguage="ar"] The desired language for the explanation ('ar', 'fr', 'en').
+ * @param {string|null} correctAnswerDB The known correct answer to the question.
+ * @returns {Promise<string>} A promise that resolves to the detailed explanation text in Markdown/LaTeX format.
+ */
+const generateDetailedAnswerWithAI = async (questionText, questionType, subjectNameForPrompt, explanationLanguage = "ar", correctAnswerDB = null) => {
+    const targetLanguageInstruction = explanationLanguage === "en" 
+        ? "The detailed explanation MUST BE EXCLUSIVELY IN ENGLISH." 
+        : explanationLanguage === "fr" 
+        ? "L'explication détaillée doit être EXCLUSIVEMENT EN FRANÇAIS." 
+        : "الشرح المفصل يجب أن يكون حصريًا باللغة العربية الفصحى.";
+    
     let promptCoreConcepts = `Provide a step-by-step, clear, and comprehensive explanation for how to arrive at the correct answer for the following question.\nSubject: ${subjectNameForPrompt}\nQuestion Type: ${questionType}\nQuestion: "${questionText}"`;
+    
     if (correctAnswerDB) {
-        promptCoreConcepts += `\nThe correct answer is known to be: "${correctAnswerDB}". Explain why this answer is correct, and if it's an MCQ, why other plausible (but incorrect) options might be chosen and why they are wrong.`;
+        promptCoreConcepts += `\nThe correct answer is known to be: "${correctAnswerDB}". Your main task is to explain in detail why this answer is correct. If it's a multiple-choice question, you should also briefly explain why other common incorrect options are wrong.`;
     }
-    if (userAnswer) {
-        promptCoreConcepts += `\nThe student's provided answer was: "${userAnswer}". If this answer is incorrect or incomplete, gently point out the deficiencies or misconceptions in their answer as part of your explanation. If it's correct, confirm it and still provide the full explanation.`;
-    }
+
+    // --- هذا هو الجزء الأهم الذي تم تحديثه بناءً على مثالك الناجح ---
     const promptText = `
-You are an expert pedagogical assistant. Your task is to provide a detailed, didactic explanation.
+You are an expert pedagogical assistant, a specialist in mathematics and sciences. Your task is to provide a detailed, didactic explanation.
 ${promptCoreConcepts}
-GUIDELINES FOR EXPLANATION:
-- Structure the explanation logically. Use markdown for formatting (e.g., headings like "### Principaux Concepts", bullet points like "* Point 1", bold text like "**Terme Important**").
-- Explain all necessary concepts, formulas, or steps clearly.
-- If applicable, provide context or real-world examples.
-- Ensure the language is appropriate for the student's level.
+
+---
+**GUIDELINES FOR EXPLANATION (NON-NEGOTIABLE):**
+---
+
+**1. LaTeX Quality:**
+- For ALL mathematical formulas, symbols, and variables, you MUST use correct LaTeX notation.
+- Use $...$ for inline math (e.g., "The variable is $x$.").
+- Use $$...$$ for display math on its own line.
+
+**2. Markdown Structure:**
+- Structure the explanation logically. Use markdown for formatting (e.g., headings like "## المفاهيم الأساسية", bullet points like "* النقطة الأولى", bold text like "**مصطلح مهم**").
+
+**3. LANGUAGE:**
 - ${targetLanguageInstruction}
-STRICT OUTPUT FORMAT:
-Respond ONLY with the JSON object, enclosed in \`\`\`json ... \`\`\`, without any text, explanation, or comments before or after.
+
+**4. CRUCIAL TECHNICAL REQUIREMENT: JSON-SAFE LaTeX ESCAPING**
+- This is the most important rule. Inside the final JSON string, every single backslash \`\\\` used for LaTeX commands **MUST BE ESCAPED** with a second backslash \`\\\\\`.
+- This is a non-negotiable technical constraint for the output to be parsed correctly.
+- **CORRECT (inside the JSON string):** \`"L'intégrale de \\\\frac{1}{x} est \\\\ln|x| + C."\`
+- **INCORRECT (inside the JSON string):** \`"L'intégrale de \\frac{1}{x} est \\ln|x| + C."\`
+- **CORRECT (inside the JSON string):** \`"La solution est $$x = \\\\frac{-b \\\\pm \\\\sqrt{b^2-4ac}}{2a}$$"\`
+- **INCORRECT (inside the JSON string):** \`"La solution est $$x = \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}$$"\`
+
+---
+**STRICT OUTPUT FORMAT**
+---
+Respond ONLY with the JSON object, enclosed in \`\`\`json ... \`\`\`, without any text before or after. The following example shows the required structure and **demonstrates the correct backslash escaping**. You must follow this formatting precisely.
 \`\`\`json
 {
-  "detailedExplanation": "The full, well-structured detailed explanation text here, using Markdown for clarity and readability."
+  "detailedExplanation": "## شرح التكامل بالتعويض\\n\\nلحل التكامل $$I = \\\\int_1^e \\\\frac{\\\\ln(x)}{x(1+\\\\ln^2(x))} dx$$\\n\\n**الخطوة الأولى: التعويض الأول**\\nنضع $u = \\\\ln(x)$. من هنا، نجد أن $du = \\\\frac{1}{x} dx$.\\nعندما $x=1$, $u = \\\\ln(1) = 0$.\\nعندما $x=e$, $u = \\\\ln(e) = 1$.\\n\\nيصبح التكامل:\\n$$I = \\\\int_0^1 \\\\frac{u}{1+u^2} du$$"
 }
 \`\`\`
 `;
+    // --------------------------------------------------------------------------
+
     let rawResponseBodyTextForErrorLogging = "";
     try {
         rawResponseBodyTextForErrorLogging = await fetchGeminiWithConfig(promptText, {
-            temperature: 0.5, topP: 0.95, topK: 40, maxOutputTokens: 3072,
+            temperature: 0.4,
+            topP: 0.95, 
+            topK: 40, 
+            maxOutputTokens: 4096,
         }, 'gemini-1.5-flash-latest');
 
         const explanationData = robustJsonExtractor(rawResponseBodyTextForErrorLogging);
@@ -306,10 +354,12 @@ Respond ONLY with the JSON object, enclosed in \`\`\`json ... \`\`\`, without an
         return explanationData.detailedExplanation;
     } catch (error) {
         console.error(`[AI_DETAILED_FATAL_OUTER] Error generating detailed answer: ${error.message}`, error.stack);
-        throw error;
+        if (rawResponseBodyTextForErrorLogging) {
+            console.error("[AI_RAW_RESPONSE_ON_ERROR]:", rawResponseBodyTextForErrorLogging);
+        }
+        throw new Error(`Failed to generate detailed explanation from AI. Root cause: ${error.message}`);
     }
 };
-
 
 module.exports = {
     generateAIQuestion,

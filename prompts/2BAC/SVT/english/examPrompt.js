@@ -17,7 +17,7 @@ Good luck!
 
     type: 'multi-step', // Still multi-step conceptually, but only one AI generation step for the whole exam
     defaultGenerationConfig: { temperature: 0.6, maxOutputTokens: 8192 }, // Max tokens for a full exam
-    defaultModelType: 'gemini-1.5-pro-latest', // A capable model is needed for this complex task
+    defaultModelType: 'gemini-1.5-flash-latest', // A capable model is needed for this complex task
 
     steps: [
         {

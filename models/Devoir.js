@@ -1,47 +1,52 @@
+// back-end/models/Devoir.js
+
 const mongoose = require('mongoose');
 
-// مخطط فرعي للأسئلة (الأسئلة التي تحت التعليمات)
-const SubQuestionSchema = new mongoose.Schema({
-    text: { type: String, required: true },
-    points: { type: Number, required: true, min: 0 },
-    // أنواع جديدة للأسئلة كما طلبت
-    questionType: {
+// =================================================================
+// ---> تم تعديل هذا المخطط الفرعي لدعم أنواع الأسئلة الجديدة
+// =================================================================
+const ComponentSchema = new mongoose.Schema({
+    type: {
         type: String,
         required: true,
-        enum: ['free_text', 'mcq', 'match_arrows', 'fill_table', 'true_false'],
-        default: 'free_text',
+        enum: ['exercise_title', 'paragraph', 'image', 'question']
     },
-    // بيانات إضافية حسب نوع السؤال
-    options: [String], // لأسئلة MCQ
-    correctAnswer: String, // لأسئلة MCQ أو true_false
-    // لأسئلة صل بسهم: مصفوفة من الأزواج
-    matchingPairs: [{
-        prompt: String,
-        answer: String,
-    }],
-    // لأسئلة ملء الجدول: هيكل للجدول
-    tableStructure: {
-        headers: [String],
-        rows: [[String]] // مصفوفة من المصفوفات لتمثيل الصفوف والخلايا
-    }
+    
+    // --- حقول مشتركة ---
+    text: { type: String }, // نص للتمرين، الفقرة، أو السؤال
+    url: { type: String },  // رابط الصورة
+    aiDescription: { type: String }, // وصف الصورة للذكاء الاصطناعي
+
+    // --- حقول خاصة بالأسئلة (Question) ---
+    points: { type: Number, default: 0 },
+    questionType: { 
+        type: String, 
+        // تمت إضافة الأنواع الجديدة هنا
+        enum: ['free_text', 'mcq', 'true_false', 'matching_pairs', 'fill_table'] 
+    },
+    // حقل للخيارات في MCQ
+    options: [String],
+    // حقل للإجابة الصحيحة في MCQ و true/false
+    correctAnswer: String,
+
+    // --- حقول جديدة لـ matching_pairs (صل بسهم) ---
+    groupA: [String], // عناصر القائمة الأولى
+    groupB: [String], // عناصر القائمة الثانية
+    correctMatches: { type: mongoose.Schema.Types.Mixed }, // مثال: { "عنصر من A": "عنصر من B" }
+
+    // --- حقول جديدة لـ fill_table (ملء الجدول) ---
+    tableHeaders: [String], // عناوين أعمدة الجدول
+    // هيكل الجدول: مصفوفة من الصفوف، كل صف هو مصفوفة من الخلايا
+    // الخلية هي كائن: { value: String, editable: Boolean }
+    tableRows: { type: mongoose.Schema.Types.Mixed }, 
+    // الإجابات الصحيحة للخلايا القابلة للتعديل
+    // مثال: { "0-1": "الإجابة الصحيحة للخلية في الصف 0 العمود 1" }
+    tableCorrectAnswers: { type: mongoose.Schema.Types.Mixed },
+
 }, { _id: false });
 
-// مخطط فرعي للتعليمات (فهم النص, درس لغوي...)
-const InstructionSchema = new mongoose.Schema({
-    title: { type: String, required: true }, // مثال: "أولاً: فهم النص"
-    content: { type: String }, // نص التعليمة أو وصفها
-    imageUrl: { type: String }, // رابط الصورة إذا كانت التعليمة صورة
-    subQuestions: [SubQuestionSchema] // الأسئلة التابعة لهذه التعليمة
-}, { _id: false });
 
-// مخطط فرعي للتمرين/الوضعية (Problem/Situation)
-const ProblemSchema = new mongoose.Schema({
-    title: { type: String, required: true }, // مثال: "دراسة نص الانطلاق"
-    context: { type: String, required: true }, // نص الوضعية/المشكلة
-    instructions: [InstructionSchema] // التعليمات التابعة لهذه الوضعية
-}, { _id: false });
-
-// المخطط الرئيسي للفرض
+// المخطط الرئيسي للفرض - لا يحتاج تعديل
 const DevoirSchema = new mongoose.Schema({
     title: {
         type: String,
@@ -54,25 +59,21 @@ const DevoirSchema = new mongoose.Schema({
     difficulty: { type: String, required: true, enum: ['سهل', 'متوسط', 'صعب'] },
     timeLimitMinutes: { type: Number, required: true, min: 10 },
     
-    // *** الجزء الذي تم تعديله جذرياً ***
-    // لم نعد نشير إلى موديل Question، بل نضمّن التمارين مباشرة
-    problems: [ProblemSchema], 
+    components: [ComponentSchema],
 
     totalPoints: { type: Number, default: 0 },
     createdBy: { type: String, default: 'admin' }
 }, { timestamps: true });
 
-// Middleware لحساب مجموع النقاط تلقائياً قبل الحفظ
+
+// Middleware لحساب النقاط - لا يحتاج تعديل
 DevoirSchema.pre('save', function(next) {
-    let total = 0;
-    this.problems.forEach(problem => {
-        problem.instructions.forEach(instruction => {
-            instruction.subQuestions.forEach(sq => {
-                total += sq.points || 0;
-            });
-        });
-    });
-    this.totalPoints = total;
+    this.totalPoints = this.components.reduce((total, component) => {
+        if (component.type === 'question' && typeof component.points === 'number') {
+            return total + component.points;
+        }
+        return total;
+    }, 0);
     next();
 });
 

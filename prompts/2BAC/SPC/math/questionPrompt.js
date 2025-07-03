@@ -1,78 +1,100 @@
+// back-end/prompts/2bac/SPC/SPC_Math/questionPrompt_2bac_spc_math.js
+
+// ==================================================================================
+// PHILOSOPHIE FINALE : "GÉNÉRATION FOCALISÉE SUR UN CONCEPT + UNE ASTUCE INTRINSÈQUE"
+// Objectif : Créer des questions complexes mais qui restent focalisées sur UN SEUL chapitre.
+// 1. On utilise une "Banque d'Astuces" de techniques mathématiques générales ou d'étapes
+//    préparatoires qui ne nécessitent PAS de connaissances d'un autre chapitre.
+// 2. À chaque génération, on combine un "Paragraphe du Cours" (le concept central du chapitre)
+//    avec une "Astuce de Conception" (la difficulté ajoutée).
+// 3. L'IA a pour mission de créer une question où l'astuce est une étape nécessaire pour
+//    *débloquer* l'application du concept principal, tout en restant dans le périmètre de la leçon.
+// ==================================================================================
+
+// --- Banque d'Astuces de Conception (Focalisées sur un seul chapitre) ---
+// Ces astuces sont des techniques de manipulation algébrique ou d'analyse qui ne
+// sortent pas du cadre du chapitre en cours.
+const astucesDeConception = [
+    "Nécessite de multiplier par l'expression conjuguée pour lever une indétermination.",
+    "Nécessite un changement de variable simple (ex: poser X = e^x, X = ln(x), ou X = 1/x).",
+    "Nécessite une factorisation par le terme de plus haut degré pour simplifier l'expression.",
+    "Nécessite de reconnaître et d'appliquer une identité remarquable (ex: (a-b)², a³-b³).",
+    "Nécessite une réécriture du numérateur ou une division euclidienne pour simplifier une fraction.",
+    "La solution implique l'interprétation géométrique d'une expression (module, argument, distance).",
+    "Nécessite d'appliquer une intégration par parties une ou deux fois.",
+    "La question est formulée de manière inversée (ex: trouver le paramètre 'a' pour que la limite soit 'L').",
+    "La fonction est définie par morceaux, exigeant une étude attentive au point de jonction.",
+    "Le problème nécessite de passer par la forme exponentielle ou trigonométrique pour simplifier un calcul.",
+    "Nécessite d'utiliser une propriété fondamentale de la fonction (parité, périodicité) pour simplifier le problème."
+];
+
+// Fonction pour choisir une astuce aléatoire
+function getRandomAstuce() {
+    return astucesDeConception[Math.floor(Math.random() * astucesDeConception.length)];
+}
+
 function generatePracticeQuestionPrompt(context) {
-    const { academicLevelName, trackName, subjectName, difficultyLevelApi, selectedLessonTitre, selectedParagraphTexte, questionLanguage, questionTypeToGenerate, selectedTaskFlavor, lessonForJsonOutput } = context;
+    const { academicLevelName, trackName, subjectName, selectedLessonTitre, selectedParagraphTexte, questionTypeToGenerate, lessonForJsonOutput } = context;
 
-    const languageInstruction = "La question et toutes ses parties (texte, options, correctAnswer) doivent être EXCLUSIVEMENT EN FRANÇAIS, avec un vocabulaire mathématique précis.";
-    const promptExpertise = `un expert en conception de questions de mathématiques pour le niveau ${academicLevelName} - ${trackName} (Sciences Physiques) du baccalauréat marocain.`;
+    // --- 1. Sélection dynamique d'une astuce de conception ---
+    const selectedAstuce = getRandomAstuce();
 
-    let examStyleGuidance = `
-La question générée doit rigoureusement imiter le style et le niveau d'exigence des questions de l'Examen National marocain pour la filière Sciences Physiques (SPC).
-Elle doit évaluer :
-- La bonne compréhension des concepts et théorèmes.
-- La capacité à appliquer les techniques de calcul de manière correcte.
-- Le raisonnement logique dans la résolution de problèmes.
-La question doit être directement liée au "Sujet de la Leçon" et au "Contenu Spécifique" fournis.`;
+    const promptExpertise = `Vous êtes un expert en conception de questions de mathématiques complexes pour le niveau ${academicLevelName} - ${trackName}. Votre spécialité est de créer des questions de style Examen National marocain qui ne sont jamais directes, mais qui restent strictement focalisées sur le chapitre étudié.`;
 
-    if (difficultyLevelApi === "Difficile") {
-        examStyleGuidance += "Cette question doit nécessiter la combinaison de deux concepts ou une analyse plus poussée qu'une simple application directe.";
-    } else if (difficultyLevelApi === "Moyen") {
-        examStyleGuidance += "Cette question doit tester une application réfléchie des connaissances, typique d'un contrôle continu.";
-    } else { // Facile
-        examStyleGuidance += "Cette question doit tester la connaissance directe d'une définition, d'un théorème ou l'application immédiate d'une formule du cours.";
-    }
+    // --- 2. Instructions fondamentales basées sur la combinaison Concept + Astuce ---
+    const specificGuidance = `
+**MISSION CENTRALE : CRÉER UNE QUESTION NON DIRECTE MAIS FOCALISÉE**
+Votre tâche est de concevoir une question de mathématiques qui combine DEUX éléments tout en restant **strictement dans le cadre de la "Leçon de référence"** :
+1.  **Le Concept du Cours :** Le savoir-faire de base tiré du **"Paragraphe Cible"**.
+2.  **L'Astuce de Conception :** Une étape préparatoire ou une technique de résolution spécifiée dans **"L'Astuce à Intégrer"**.
 
-    const topicContextBlock = `
-CONTEXTE_ACADÉMIQUE:
-- Niveau: "${academicLevelName}"
-- Filière: "${trackName}"
-- Matière: "${subjectName}"
-- Sujet de la Leçon: "${selectedLessonTitre}" 
-- Contenu Spécifique: "${selectedParagraphTexte}"
-- Langue: "${questionLanguage}"`;
+**PROCESSUS DE CRÉATION OBLIGATOIRE :**
+1.  **Analyser** le **"Paragraphe Cible"**. C'est le concept principal que l'élève doit maîtriser.
+2.  **Analyser** **"L'Astuce à Intégrer"**. C'est la difficulté que vous devez ajouter.
+3.  **Synthétiser :** Créez un exercice où l'application directe du concept du paragraphe est impossible au départ. L'élève DOIT d'abord appliquer **"L'Astuce à Intégrer"** (factoriser, utiliser le conjugué, etc.) pour transformer le problème. Une fois cette étape franchie, il peut alors appliquer le concept du paragraphe pour trouver la solution.
+4.  **RÈGLE D'OR :** La question finale et sa résolution ne doivent faire appel qu'à des connaissances de la **"Leçon de référence"** et des acquis des années précédentes. **NE JAMAIS combiner des concepts de chapitres différents du programme de Terminale.**
+5.  **Important :** L'astuce ne doit JAMAIS être mentionnée dans la question. Elle doit être découverte par l'élève.
 
-    let outputFormatInstructions;
-    if (questionTypeToGenerate === "mcq") {
-        outputFormatInstructions = `
-FORMAT_DE_SORTIE_JSON_STRICT (QCM):
-1. ${languageInstruction}
-2. Objectif: "${selectedTaskFlavor.description}".
-3. Format: Un QCM avec 4 options distinctes et plausibles. Une seule est correcte.
-4. Distracteurs: Les options incorrectes doivent représenter des erreurs de calcul ou de raisonnement communes.
+**EXIGENCE ABSOLUE POUR LE FORMATAGE MATHÉMATIQUE (LaTeX) :**
+- Toute expression mathématique, variable, ou symbole DOIT être formatée en LaTeX.
+- Utilisez des doubles backslashs pour l'échappement dans le JSON final.
+- **Exemples de formatage correct :**
+  - Pour une fonction : "Soit la fonction $f$ définie par $f(x) = \\\\frac{x^2 - 1}{x+1}$."
+  - Pour une limite : "Calculer $\\\\lim_{x \\\\to +\\\\infty} (\\\\sqrt{x^2+x} - x)$."
+  - Pour une intégrale : "Déterminer la valeur de $I = \\\\int_{0}^{1} x e^x dx$."
+- L'intégralité de la sortie doit être un objet JSON valide et rien d'autre.`;
+
+    // --- 3. Format de sortie (simplifié) ---
+    const outputFormat = `
+**VOTRE TÂCHE :**
+Appliquez rigoureusement le processus de création décrit ci-dessus. Retournez le résultat sous la forme d'un objet JSON valide.
+
 \`\`\`json
 {
-  "question": "Quelle est la limite de la suite (u_n) définie par u_n = (2n+1)/(3n-5) ?",
-  "options": ["2/3", "1", "+\\infty", "-1/5"],
-  "correctAnswer": "2/3",
-  "lesson": "${lessonForJsonOutput}",
-  "type": "mcq"
+  "question": "Votre question ici, entièrement formatée en LaTeX pour les maths.",
+  "type": "${questionTypeToGenerate}",
+  "options": ["Option 1 en LaTeX", "Option 2 en LaTeX", "Option 3 en LaTeX", "Option 4 en LaTeX"],
+  "correctAnswer": "La bonne réponse en LaTeX",
+  "lesson": "${lessonForJsonOutput}"
 }
 \`\`\`
-`;
-    } else { // free_text
-        outputFormatInstructions = `
-FORMAT_DE_SORTIE_JSON_STRICT (Question ouverte):
-1. ${languageInstruction}
-2. Objectif: "${selectedTaskFlavor.description}".
-3. correctAnswer: Fournissez le résultat final attendu (un nombre, une expression, etc.).
-\`\`\`json
-{
-  "question": "Calculer l'intégrale I = \\\\int_{0}^{1} (x^2 + 2x) dx.",
-  "options": [],
-  "correctAnswer": "I = 4/3",
-  "lesson": "${lessonForJsonOutput}",
-  "type": "free_text"
-}
-\`\`\`
-`;
-    }
+Si le type est "free_text", le champ "options" doit être "[]" et "correctAnswer" doit contenir la réponse textuelle détaillée.`;
 
-    return `
-Vous êtes ${promptExpertise}.
-Votre mission est de créer une seule question de qualité, style examen national SPC.
-${examStyleGuidance}
-TÂCHE DE GÉNÉRATION:
-${topicContextBlock}
-${outputFormatInstructions}
-Répondez UNIQUEMENT avec un seul objet JSON valide.`;
+    // --- 4. Tجميع البرومبت النهائي ---
+    return `${promptExpertise}
+
+${specificGuidance}
+
+---
+**ÉLÉMENTS POUR LA CRÉATION DE LA QUESTION**
+---
+- **Leçon de référence (CADRE STRICT) :** "${selectedLessonTitre}"
+- **Paragraphe Cible (Le concept de base à tester) :** "${selectedParagraphTexte}"
+- **L'Astuce à Intégrer (La difficulté à ajouter) :** "${selectedAstuce}"
+- **Type de question à générer :** "${questionTypeToGenerate}"
+
+${outputFormat}
+`;
 }
 
-module.exports = { generatePracticeQuestionPrompt };
+module.exports = { generatePracticeQuestionPrompt, getRandomAstuce };
