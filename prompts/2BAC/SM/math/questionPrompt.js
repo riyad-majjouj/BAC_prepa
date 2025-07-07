@@ -1,114 +1,97 @@
-// prompts/2BAC/SM/questionPrompt_2bac_sm_math.js
+// back-end/prompts/2bac/SPC/SPC_Math/questionPrompt_2bac_spc_math.js
+
+// ==================================================================================
+// PHILOSOPHIE FINALE : "GÉNÉRATION FOCALISÉE SUR UN CONCEPT + UNE ASTUCE INTRINSÈQUE"
+// Objectif : Créer des questions complexes mais qui restent focalisées sur UN SEUL chapitre.
+// 1. On utilise une "Banque d'Astuces" de techniques mathématiques générales.
+// 2. À chaque génération, on combine un "Paragraphe du Cours" (le concept central)
+//    avec une "Astuce de Conception" (la difficulté ajoutée).
+// 3. L'IA a pour mission de créer une question où l'astuce est une étape nécessaire pour
+//    *débloquer* l'application du concept principal.
+// ==================================================================================
+
+// --- Banque d'Astuces de Conception (techniques non directes) ---
+const astucesDeConception = [
+    "Nécessite de multiplier par l'expression conjuguée pour lever une indétermination.",
+    "Nécessite un changement de variable simple (ex: poser X = e^x, X = ln(x), ou X = sqrt(x)).",
+    "Nécessite une factorisation par le terme de plus haut degré pour simplifier une expression complexe.",
+    "Nécessite de reconnaître et d'appliquer une identité remarquable (ex: (a-b)², a³-b³).",
+    "Nécessite une réécriture du numérateur ou une division euclidienne pour simplifier une fraction.",
+    "La solution implique l'interprétation géométrique d'une expression (module, argument, distance).",
+    "Nécessite d'appliquer une intégration par parties une ou deux fois.",
+    "La question est formulée de manière inversée (ex: trouver le paramètre 'a' pour que la limite soit 'L').",
+    "La fonction est définie par morceaux, exigeant une étude attentive au point de jonction.",
+    "Le problème nécessite de passer par la forme exponentielle ou trigonométrique pour simplifier un calcul complexe.",
+    "Nécessite d'utiliser une propriété fondamentale d'une fonction (parité, périodicité) pour simplifier le problème."
+];
+
+// Fonction pour choisir une astuce aléatoire
+function getRandomAstuce() {
+    return astucesDeConception[Math.floor(Math.random() * astucesDeConception.length)];
+}
 
 function generatePracticeQuestionPrompt(context) {
-    const {
-        academicLevelName, trackName, subjectName, difficultyLevelApi,
-        selectedLessonTitre, selectedParagraphTexte, questionLanguage,
-        questionTypeToGenerate, selectedTaskFlavor, lessonForJsonOutput
-    } = context;
+    const { academicLevelName, trackName, selectedLessonTitre, selectedParagraphTexte, questionTypeToGenerate, lessonForJsonOutput } = context;
 
-    const languageInstruction = "La question et toutes ses parties (texte, options, correctAnswer) doivent être EXCLUSIVEMENT EN FRANÇAIS, avec un vocabulaire mathématique précis et rigoureux.";
-    const promptExpertise = `un expert en conception de questions de mathématiques pour le niveau ${academicLevelName} - ${trackName} (Sciences Mathématiques) du baccalauréat marocain.`;
+    // --- 1. Sélection dynamique d'une astuce de conception ---
+    const selectedAstuce = getRandomAstuce();
 
-    let examStyleGuidance = `
-La question générée doit rigoureusement imiter le style, la structure et le niveau d'exigence des questions de l'Examen National marocain pour la filière Sciences Mathématiques.
-Elle doit évaluer la compréhension profonde des concepts, la capacité à appliquer les techniques avec précision, et la rigueur du raisonnement.
-La question doit être directement et strictement liée au "Sujet de la Leçon" et au "Contenu Spécifique" fournis.
-`;
+    const promptExpertise = `Vous êtes un expert en conception de questions de mathématiques complexes pour le niveau ${academicLevelName} - ${trackName}. Votre spécialité est de créer des questions de style Examen National marocain qui ne sont jamais directes, mais qui restent strictement focalisées sur le chapitre étudié.`;
 
-    if (difficultyLevelApi === "Difficile") {
-        examStyleGuidance += "Cette question doit être très difficile, nécessitant une analyse fine, la combinaison de plusieurs concepts, et une solution non évidente.";
-    } else if (difficultyLevelApi === "Moyen") {
-        examStyleGuidance += "Cette question doit tester une application réfléchie des connaissances, pouvant nécessiter une petite astuce (changement de variable, simplification, etc.).";
-    } else { // Facile
-        examStyleGuidance += "Cette question doit tester la connaissance directe d'une définition, d'un théorème ou l'application simple d'une formule du cours.";
-    }
+    // --- 2. Instructions fondamentales basées sur la combinaison Concept + Astuce ---
+    const specificGuidance = `
+**MISSION CENTRALE : CRÉER UNE QUESTION NON DIRECTE MAIS FOCALISÉE**
+Votre tâche est de concevoir une question de mathématiques qui combine DEUX éléments tout en restant **strictement dans le cadre de la "Leçon de référence"** :
+1.  **Le Concept du Cours :** Le savoir-faire de base tiré du **"Paragraphe Cible"**.
+2.  **L'Astuce de Conception :** Une étape préparatoire ou une technique de résolution spécifiée dans **"L'Astuce à Intégrer"**.
 
-    const contextForPrompt = typeof selectedParagraphTexte === 'string' ? selectedParagraphTexte : JSON.stringify(selectedParagraphTexte);
+**PROCESSUS DE CRÉATION OBLIGATOIRE :**
+1.  **Analyser** le **"Paragraphe Cible"**. C'est le concept principal que l'élève doit maîtriser.
+2.  **Analyser** **"L'Astuce à Intégrer"**. C'est la difficulté que vous devez ajouter.
+3.  **Synthétiser :** Créez un exercice où l'application directe du concept du paragraphe est impossible au départ. L'élève DOIT d'abord appliquer **"L'Astuce à Intégrer"** (factoriser, utiliser le conjugué, etc.) pour transformer le problème. Une fois cette étape franchie, il peut alors appliquer le concept du paragraphe pour trouver la solution.
+4.  **RÈGLE D'OR :** La question finale et sa résolution ne doivent faire appel qu'à des connaissances de la **"Leçon de référence"** et des acquis des années précédentes. **NE JAMAIS combiner des concepts de chapitres différents du programme de Terminale.**
+5.  **Important :** L'astuce ne doit JAMAIS être mentionnée dans la question. Elle doit être découverte par l'élève.
 
-    const latexFormattingRule = `
-EXIGENCE ABSOLUE POUR LE FORMATAGE MATHÉMATIQUE (LaTeX pour JSON):
-1.  **Délimiteurs OBLIGATOIRES :**
-    - Utilisez \`$ ... $\` pour TOUTE expression mathématique en ligne (inline), comme une variable ($f$), un nombre ($3$), une appartenance ($x \\in H$).
-    - Utilisez \`$$ ... $$\` pour TOUTE expression mathématique en bloc (display), comme les fractions, les intégrales, les limites.
+**EXIGENCE ABSOLUE POUR LE FORMATAGE MATHÉMATIQUE (LaTeX) :**
+- Toute expression mathématique, variable, ou symbole DOIT être formatée en LaTeX.
+- Utilisez des doubles backslashs pour l'échappement dans le JSON final.
+- **Exemples de formatage correct :**
+  - Pour une fonction : "Soit la fonction $f$ définie par $f(x) = \\\\frac{x^2 - 1}{x+1}$."
+  - Pour une limite : "Calculer $\\\\lim_{x \\\\to +\\\\infty} (\\\\sqrt{x^2+x} - x)$."
+  - Pour une intégrale : "Déterminer la valeur de $I = \\\\int_{0}^{1} x e^x dx$."
+- L'intégralité de la sortie doit être un objet JSON valide et rien d'autre.`;
 
-2.  **Échappement OBLIGATOIRE des backslashs :**
-    - À l'intérieur du JSON généré, chaque backslash (\\) d'une commande LaTeX DOIT être doublé (échappé) pour être valide.
-    - EXEMPLE CORRECT : Pour obtenir $\\implies$, vous devez écrire "\\\\implies" dans la chaîne de caractères du JSON. Pour $\\in$, vous devez écrire "\\\\in".
+    // --- 3. Format de sortie ---
+    const outputFormat = `
+**VOTRE TÂCHE :**
+Appliquez rigoureusement le processus de création décrit ci-dessus. Retournez le résultat sous la forme d'un objet JSON valide.
 
-3.  **EXEMPLES À SUIVRE SCRUPULEUSEMENT :**
-    - Appartenance : "Si $x \\in H$ et $y \\in H$..."
-    - Implication : "L'assertion $(1) \\implies (2)$ est vraie."
-    - Limite : "Calculer $$\\lim_{x \\to +\\infty} (\\sqrt{x^2+x} - x)$$"
-    - Fraction : "$$f(x) = \\frac{x^2 - 4}{x - 2}$$"
-
-4.  Cette règle s'applique à TOUS les champs du JSON : "question", "options", et "correctAnswer".
-`;
-
-    let outputFormatInstructions;
-    if (questionTypeToGenerate === "mcq") {
-        outputFormatInstructions = `
-FORMAT DE SORTIE JSON STRICT (QCM):
-1.  ${languageInstruction}
-2.  ${latexFormattingRule}
-3.  Objectif : "Évaluer la compréhension des définitions et des théorèmes fondamentaux sur les structures algébriques (sous-groupes)."
-4.  Créez un QCM avec exactement quatre (4) options. Une seule réponse correcte. Les distracteurs doivent représenter des erreurs de raisonnement courantes.
-
-Répondez UNIQUEMENT avec un seul objet JSON valide, encapsulé dans \`\`\`json ... \`\`\`.
-L'exemple ci-dessous est celui que vous devez générer, en respectant parfaitement le formatage LaTeX.
 \`\`\`json
 {
-  "question": "Soit $(G, *)$ un groupe. On considère les assertions suivantes concernant un sous-ensemble $H$ de $G$ :\\\\ \\\\ (1) Si $x, y \\in H$, alors $x * y^{-1} \\in H$. \\\\ (2) Si $x \\in H$, alors $x^{-1} \\in H$. \\\\ (3) $H$ est non vide. \\\\ (4) L'élément neutre $e$ de $G$ appartient à $H$. \\\\ \\\\ Quelle est la bonne séquence d'implications nécessaires et suffisantes pour démontrer que $H$ est un sous-groupe de $G$ ?",
-  "options": [
-    "$(1) \\implies (2) \\implies (3) \\implies (4)$",
-    "$(3) \\implies (1) \\implies (2) \\implies (4)$",
-    "$(3)$ et $(1) \\implies (2)$ et $(4)$",
-    "$(1)$ et $(3) \\implies (2)$ et $(4)$"
-  ],
-  "correctAnswer": "$(3)$ et $(1) \\implies (2)$ et $(4)$",
-  "lesson": "${lessonForJsonOutput}",
-  "type": "mcq"
+  "question": "Votre question ici, entièrement formatée en LaTeX pour les maths.",
+  "type": "${questionTypeToGenerate}",
+  "options": ["Option 1 en LaTeX", "Option 2 en LaTeX", "Option 3 en LaTeX", "Option 4 en LaTeX"],
+  "correctAnswer": "La bonne réponse en LaTeX",
+  "lesson": "${lessonForJsonOutput}"
 }
 \`\`\`
+Si le type est "free_text", le champ "options" doit être un tableau vide [] et "correctAnswer" doit contenir la réponse textuelle détaillée.`;
+
+    // --- 4. Assemblage du Prompt final ---
+    return `${promptExpertise}
+
+${specificGuidance}
+
+---
+**ÉLÉMENTS POUR LA CRÉATION DE LA QUESTION**
+---
+- **Leçon de référence (CADRE STRICT) :** "${selectedLessonTitre}"
+- **Paragraphe Cible (Le concept de base à tester) :** "${selectedParagraphTexte}"
+- **L'Astuce à Intégrer (La difficulté cachée à ajouter) :** "${selectedAstuce}"
+- **Type de question à générer :** "${questionTypeToGenerate}"
+
+${outputFormat}
 `;
-    } else { // free_text
-        outputFormatInstructions = `
-FORMAT DE SORTIE JSON STRICT (Question à réponse ouverte):
-1.  ${languageInstruction}
-2.  ${latexFormattingRule}
-3.  La question doit nécessiter un calcul ou une courte démonstration.
-4.  Le champ "options" doit être un tableau vide [].
-
-Répondez UNIQUEMENT avec un seul objet JSON valide, encapsulé dans \`\`\`json ... \`\`\`.
-\`\`\`json
-{
-  "question": "Calculer la limite suivante : $$\\lim_{x \\to +\\infty} (\\sqrt{x^2 + 4x} - x)$$",
-  "options": [],
-  "correctAnswer": "La limite est $2$.",
-  "lesson": "${lessonForJsonOutput}",
-  "type": "free_text"
-}
-\`\`\`
-`;
-    }
-
-    const finalPrompt = `
-Vous êtes ${promptExpertise}.
-Votre mission est de créer une seule question de haute qualité.
-
-INSTRUCTIONS DE STYLE ET DE CONTENU:
-${examStyleGuidance}
-
-CONTEXTE DE LA QUESTION:
-- Leçon: "${selectedLessonTitre}" 
-- Contenu Spécifique: "${contextForPrompt}"
-- Langue: "${questionLanguage}"
-
-${outputFormatInstructions}
-
-INSTRUCTION FINALE: Vérifiez méticuleusement votre réponse. L'objet JSON doit être parfait. Le formatage LaTeX (avec les délimiteurs \`$\` ou \`$$\` ET les doubles backslashs \`\\\\\` pour les commandes) est l'exigence la plus critique.
-`;
-    return finalPrompt;
 }
 
 module.exports = { generatePracticeQuestionPrompt };

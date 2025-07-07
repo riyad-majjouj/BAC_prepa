@@ -3,29 +3,26 @@
 // ==================================================================================
 // PHILOSOPHIE FINALE : "GÉNÉRATION FOCALISÉE SUR UN CONCEPT + UNE ASTUCE INTRINSÈQUE"
 // Objectif : Créer des questions complexes mais qui restent focalisées sur UN SEUL chapitre.
-// 1. On utilise une "Banque d'Astuces" de techniques mathématiques générales ou d'étapes
-//    préparatoires qui ne nécessitent PAS de connaissances d'un autre chapitre.
-// 2. À chaque génération, on combine un "Paragraphe du Cours" (le concept central du chapitre)
+// 1. On utilise une "Banque d'Astuces" de techniques mathématiques générales.
+// 2. À chaque génération, on combine un "Paragraphe du Cours" (le concept central)
 //    avec une "Astuce de Conception" (la difficulté ajoutée).
 // 3. L'IA a pour mission de créer une question où l'astuce est une étape nécessaire pour
-//    *débloquer* l'application du concept principal, tout en restant dans le périmètre de la leçon.
+//    *débloquer* l'application du concept principal.
 // ==================================================================================
 
-// --- Banque d'Astuces de Conception (Focalisées sur un seul chapitre) ---
-// Ces astuces sont des techniques de manipulation algébrique ou d'analyse qui ne
-// sortent pas du cadre du chapitre en cours.
+// --- Banque d'Astuces de Conception (techniques non directes) ---
 const astucesDeConception = [
     "Nécessite de multiplier par l'expression conjuguée pour lever une indétermination.",
-    "Nécessite un changement de variable simple (ex: poser X = e^x, X = ln(x), ou X = 1/x).",
-    "Nécessite une factorisation par le terme de plus haut degré pour simplifier l'expression.",
+    "Nécessite un changement de variable simple (ex: poser X = e^x, X = ln(x), ou X = sqrt(x)).",
+    "Nécessite une factorisation par le terme de plus haut degré pour simplifier une expression complexe.",
     "Nécessite de reconnaître et d'appliquer une identité remarquable (ex: (a-b)², a³-b³).",
     "Nécessite une réécriture du numérateur ou une division euclidienne pour simplifier une fraction.",
     "La solution implique l'interprétation géométrique d'une expression (module, argument, distance).",
     "Nécessite d'appliquer une intégration par parties une ou deux fois.",
     "La question est formulée de manière inversée (ex: trouver le paramètre 'a' pour que la limite soit 'L').",
     "La fonction est définie par morceaux, exigeant une étude attentive au point de jonction.",
-    "Le problème nécessite de passer par la forme exponentielle ou trigonométrique pour simplifier un calcul.",
-    "Nécessite d'utiliser une propriété fondamentale de la fonction (parité, périodicité) pour simplifier le problème."
+    "Le problème nécessite de passer par la forme exponentielle ou trigonométrique pour simplifier un calcul complexe.",
+    "Nécessite d'utiliser une propriété fondamentale d'une fonction (parité, périodicité) pour simplifier le problème."
 ];
 
 // Fonction pour choisir une astuce aléatoire
@@ -34,7 +31,7 @@ function getRandomAstuce() {
 }
 
 function generatePracticeQuestionPrompt(context) {
-    const { academicLevelName, trackName, subjectName, selectedLessonTitre, selectedParagraphTexte, questionTypeToGenerate, lessonForJsonOutput } = context;
+    const { academicLevelName, trackName, selectedLessonTitre, selectedParagraphTexte, questionTypeToGenerate, lessonForJsonOutput } = context;
 
     // --- 1. Sélection dynamique d'une astuce de conception ---
     const selectedAstuce = getRandomAstuce();
@@ -64,7 +61,7 @@ Votre tâche est de concevoir une question de mathématiques qui combine DEUX é
   - Pour une intégrale : "Déterminer la valeur de $I = \\\\int_{0}^{1} x e^x dx$."
 - L'intégralité de la sortie doit être un objet JSON valide et rien d'autre.`;
 
-    // --- 3. Format de sortie (simplifié) ---
+    // --- 3. Format de sortie ---
     const outputFormat = `
 **VOTRE TÂCHE :**
 Appliquez rigoureusement le processus de création décrit ci-dessus. Retournez le résultat sous la forme d'un objet JSON valide.
@@ -78,9 +75,9 @@ Appliquez rigoureusement le processus de création décrit ci-dessus. Retournez 
   "lesson": "${lessonForJsonOutput}"
 }
 \`\`\`
-Si le type est "free_text", le champ "options" doit être "[]" et "correctAnswer" doit contenir la réponse textuelle détaillée.`;
+Si le type est "free_text", le champ "options" doit être un tableau vide [] et "correctAnswer" doit contenir la réponse textuelle détaillée.`;
 
-    // --- 4. Tجميع البرومبت النهائي ---
+    // --- 4. Assemblage du Prompt final ---
     return `${promptExpertise}
 
 ${specificGuidance}
@@ -90,11 +87,11 @@ ${specificGuidance}
 ---
 - **Leçon de référence (CADRE STRICT) :** "${selectedLessonTitre}"
 - **Paragraphe Cible (Le concept de base à tester) :** "${selectedParagraphTexte}"
-- **L'Astuce à Intégrer (La difficulté à ajouter) :** "${selectedAstuce}"
+- **L'Astuce à Intégrer (La difficulté cachée à ajouter) :** "${selectedAstuce}"
 - **Type de question à générer :** "${questionTypeToGenerate}"
 
 ${outputFormat}
 `;
 }
 
-module.exports = { generatePracticeQuestionPrompt, getRandomAstuce };
+module.exports = { generatePracticeQuestionPrompt };

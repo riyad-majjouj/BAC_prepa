@@ -1,163 +1,225 @@
-// back-end/prompts/2BAC/SM/2BAC_sm_Math/examPrompt_2bac_sm_math.js
+const curriculum = require('../../../../exam-curriculum-data/2BAC/SM/math.js');
 
-const { getRandomFromArray } = require('../../../../utils/aiGeneralQuestionGeneratorShared');
+// =================================================================================
+// START: The Abstract Concept Factory - مصنع المفاهيم المجردة
+// =================================================================================
 
-function selectRandomSubTopics(lessonParagraphs, count) {
-    if (!lessonParagraphs || lessonParagraphs.length === 0) return [];
-    const shuffled = [...lessonParagraphs].sort(() => 0.5 - Math.random());
-    return shuffled.slice(0, count).map(p => (typeof p === 'string' ? p : p.text || ''));
+const getRandomElement = (arr) => arr[Math.floor(Math.random() * arr.length)];
+const getRandomInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+
+/**
+ * يولد "مفهوم" رياضي مجرد ليكون نواة المسألة.
+ * @param {string} problemDomain - مجال المسألة (Analyse, Arithmétique, etc.)
+ * @returns {Object} - كائن يحتوي على وصف المفهوم الإجباري.
+ */
+function createAbstractConcept(problemDomain) {
+    const domainLower = problemDomain.toLowerCase();
+    let concept = {};
+
+    if (domainLower.includes('analyse')) {
+        const functionFamilies = [
+            `f_n(x) = x^k (\\ln(x))^n`,
+            `f_n(x) = \\frac{e^{-nx}}{x^k+a}`,
+            `f_n(x) = \\arctan(nx) - kx`,
+            `f_n(x) = (x-a)^n e^{-x}`
+        ];
+        const chosenFamily = getRandomElement(functionFamilies)
+            .replace('n', 'n') // Keep n as parameter
+            .replace('k', getRandomInt(1, 2).toString())
+            .replace('a', getRandomInt(1, 2).toString());
+
+        concept.imposedConcept = `Le problème doit tourner autour de l'étude de la **famille de fonctions** $(f_n)_{n \\in \\mathbb{N}^*}$ définie par **$${chosenFamily}$**.`;
+        
+        const theoreticalQuestions = [
+            "1. Démontrer que pour tout $n \\in \\mathbb{N}^*$, l'équation $f_n(x) = 1$ admet une solution unique, notée $x_n$.",
+            "2. Étudier la monotonie et la convergence de la suite $(x_n)_{n \\in \\mathbb{N}^*}$.",
+            "3. Calculer la limite de la suite $(x_n)$ en justifiant rigoureusement.",
+            "4. Étudier le comportement de la fonction (limites, variations) en discutant selon la parité de l'entier $n$."
+        ];
+        // Select 2 unique questions
+        const shuffledQuestions = [...theoreticalQuestions].sort(() => 0.5 - Math.random());
+        concept.theoreticalTasks = `Vous devez intégrer les questions théoriques suivantes dans le problème : \n- ${shuffledQuestions[0]}\n- ${shuffledQuestions[1]}`;
+
+    } else if (domainLower.includes('arithmétique')) {
+        const p = getRandomElement([11, 13, 17]);
+        const a = getRandomInt(2, p - 2);
+        concept.imposedConcept = `Le problème est une investigation théorique des propriétés des solutions de l'équation $(E_p): x^2 \\equiv a \\pmod{p}$, où $p$ est un nombre premier et $a$ est un entier non-résidu quadratique.`;
+        concept.theoreticalTasks = `Les questions doivent prouver des propriétés générales, comme le critère d'Euler, et non simplement trouver une solution numérique. Par exemple : démontrer que $a^{\\frac{p-1}{2}} \\equiv -1 \\pmod{p}$.`;
+
+    } else if (domainLower.includes('structures')) {
+        const structures = [
+            `l'ensemble $E = \\{ M(a,b) \\in \\mathcal{M}_2(\\mathbb{R}) \\}$ muni d'une loi $\\star$ non-conventionnelle`,
+            `l'anneau-produit $(\\mathbb{Z}/n\\mathbb{Z} \\times \\mathbb{Z}/m\\mathbb{Z}, +, \\times)$`,
+            `un ensemble de fonctions $F = \\{ f_{a,b} : x \\mapsto ax+b \\}$ muni de la composition $\\circ$`
+        ];
+        concept.imposedConcept = `Le problème doit étudier en profondeur la structure de ${getRandomElement(structures)}.`;
+        concept.theoreticalTasks = `Les questions doivent porter sur : la recherche d'éléments inversibles, la démonstration qu'une partie est un sous-groupe ou un sous-anneau, et la discussion si la structure est un corps ou non.`;
+
+    } else if (domainLower.includes('complexes')) {
+        concept.imposedConcept = `Le problème utilise les nombres complexes pour résoudre un problème de géométrie non-trivial. Le cadre est un cercle $(U)$ et des points $A(a), B(b), C(c)$ sur ce cercle.`;
+        concept.theoreticalTasks = `Prouver des relations géométriques en utilisant les affixes. Par exemple : montrer que l'orthocentre du triangle $ABC$ a pour affixe $h=a+b+c$, ou trouver l'affixe d'un point $P$ défini par une condition de parallélisme ou d'orthogonalité.`;
+    }
+
+    return concept;
 }
+
+// =================================================================================
+// END: The Abstract Concept Factory
+// =================================================================================
+
 
 module.exports = {
     examConfig: {
-        numberOfProblems: () => (Math.random() < 0.5 ? 4 : 5),
+        numberOfProblems: () => 4, // Les examens récents ont souvent 4 problèmes.
         timeLimitMinutes: 240,
     },
 
     type: 'multi-step',
-    defaultGenerationConfig: { temperature: 0.65, maxOutputTokens: 4096 },
+    defaultGenerationConfig: { temperature: 0.7, maxOutputTokens: 8192 },
     defaultModelType: 'gemini-1.5-flash-latest',
-    defaultStepDelayMs: 1500,
 
     steps: [
         {
             name: 'prepare_problem_scope',
-            processor: (context, previousOutputs) => {
-                const { lessonTitle, curriculumData } = context;
+            processor: () => {
+                let problemChoice, problemDomain, totalPointsForProblem, isChallengeProblem;
 
-                if (!curriculumData || !Array.isArray(curriculumData)) {
-                    return { focusedSubTopics: ["concepts généraux"], totalPointsForProblem: 4, isChallengeProblem: Math.random() < 0.4 };
-                }
-                const lesson = curriculumData.find(l => l.titreLecon === lessonTitle);
-                if (!lesson) {
-                    return { focusedSubTopics: ["concepts généraux"], totalPointsForProblem: 4, isChallengeProblem: Math.random() < 0.4 };
-                }
-
-                const subTopics = selectRandomSubTopics(lesson.paragraphes, 3);
-                let suggestedPoints;
-                const lowerCaseLesson = lessonTitle.toLowerCase();
-                if (lowerCaseLesson.includes('étude de fonctions') || lowerCaseLesson.includes('analyse') || lowerCaseLesson.includes('calcul intégral')) {
-                    suggestedPoints = (Math.random() * 4) + 7; // 7-11 points
-                } else if (lowerCaseLesson.includes('complexes') || lowerCaseLesson.includes('arithmétique') || lowerCaseLesson.includes('structures')) {
-                    suggestedPoints = (Math.random() * 2) + 3; // 3-5 points
-                } else {
-                    suggestedPoints = (Math.random() * 3) + 4; // 4-7 points
+                // Forcer une distribution plus proche des examens : 1 Analyse, 1 Complexe, 1 Structure, 1 Arithmétique
+                // Cette logique peut être complexifiée, mais pour l'instant on garde le choix aléatoire.
+                
+                const randomFactor = Math.random();
+                if (randomFactor < 0.35) { // 35% chance for a big Analysis problem
+                    problemChoice = curriculum.problemesIntegres.find(p => p.lessonsImpliquees.includes("Étude de fonctions"));
+                    problemDomain = "Analyse";
+                    totalPointsForProblem = getRandomInt(9, 11);
+                } else { // 65% chance for other problems
+                    const otherDomains = ["Nombres Complexes", "Structures Algébriques", "Arithmétique"];
+                    problemDomain = getRandomElement(otherDomains);
+                    problemChoice = { titreProbleme: `Problème sur ${problemDomain}` };
+                    totalPointsForProblem = (Math.random() * 1.5) + 2.5; // 2.5-4 pts
                 }
                 
-                suggestedPoints = Math.round(suggestedPoints * 4) / 4;
+                totalPointsForProblem = Math.round(totalPointsForProblem * 4) / 4;
+                isChallengeProblem = true; // Tous les problèmes doivent être des défis.
+
+                // <-- MODIFICATION MAJEURE: Utilisation de l'Abstract Concept Factory
+                const abstractConcept = createAbstractConcept(problemDomain);
 
                 return {
-                    focusedSubTopics: subTopics,
-                    totalPointsForProblem: suggestedPoints,
-                    isChallengeProblem: Math.random() < 0.4
+                    titreProbleme: problemChoice.titreProbleme,
+                    totalPointsForProblem: totalPointsForProblem,
+                    isChallengeProblem: isChallengeProblem,
+                    abstractConcept: abstractConcept // On passe le concept entier au prompt
                 };
             }
         },
         {
             name: 'generate_exam_problem',
-            description: 'Generates a full exam-style math problem with sub-questions, mimicking Moroccan national exams.',
             promptGenerator: (context, previousOutputs) => {
-                const { academicLevelName, trackName, lessonTitle } = context;
-                const { focusedSubTopics, totalPointsForProblem, isChallengeProblem } = previousOutputs.prepare_problem_scope;
+                const { titreProbleme, totalPointsForProblem, abstractConcept } = previousOutputs.prepare_problem_scope;
 
-                const challengeInstruction = isChallengeProblem 
-                    ? `INSTRUCTION SPÉCIALE : Ce problème doit être un DÉFI intellectuel, non conventionnel et difficile, pour tester les meilleurs élèves.`
-                    : `DIFFICULTÉ : Le problème doit être d'un niveau standard pour l'Examen National (exigeant mais juste).`;
+                let conceptInstructions = "";
+                if (abstractConcept && Object.keys(abstractConcept).length > 0) {
+                    conceptInstructions = `
+**CONCEPT CENTRAL IMPOSÉ (CŒUR DU PROBLÈME) :**
+Vous devez construire l'intégralité de l'exercice autour du concept théorique suivant. C'est une contrainte absolue et non-négociable.
 
-                const subTopicsText = focusedSubTopics && focusedSubTopics.length > 0
-                    ? `Le problème doit s'articuler autour des concepts suivants : ${focusedSubTopics.join(', ')}.`
-                    : "Le problème doit couvrir les aspects fondamentaux de ce chapitre.";
+- **Cadre du problème :** ${abstractConcept.imposedConcept}
+- **Questions Théoriques à inclure :** ${abstractConcept.theoreticalTasks}
+`;
+                }
 
-                // --- *** بداية التعديل على البرومبت لتبسيطه قليلاً *** ---
                 return `
-Vous êtes un concepteur de problèmes de mathématiques pour le Baccalauréat Marocain, filière ${trackName}.
-Votre mission est de créer UN SEUL exercice (problème) qui reflète le style et la rigueur des examens nationaux.
+Vous êtes un académicien membre de la commission nationale des examens de mathématiques pour la filière Sciences Mathématiques A. Votre mission est de concevoir UN SEUL exercice (problème) qui reflète la profondeur, la rigueur et le niveau d'abstraction des épreuves nationales marocaines.
 
-LIGNES DIRECTRICES :
-1.  **Cohérence :** Les questions doivent s'enchaîner logiquement. Le résultat d'une question peut être utilisé dans la suivante.
-2.  **Difficulté :** ${challengeInstruction}
-3.  **Barème :** Le total des points pour cet exercice est EXACTEMENT ${totalPointsForProblem} points. Répartissez-les judicieusement (ex: 0.25, 0.5, 0.75).
-4.  **Formatage :**EXIGENCE ABSOLUE POUR LE FORMATAGE MATHÉMATIQUE (LaTeX pour JSON):
-1.  **Délimiteurs OBLIGATOIRES :**
-    - Utilisez \`$ ... $\` pour TOUTE expression mathématique en ligne (inline), comme une variable ($f$), un nombre ($3$), une appartenance ($x \\in H$).
-    - Utilisez \`$$ ... $$\` pour TOUTE expression mathématique en bloc (display), comme les fractions, les intégrales, les limites.
+**MISSION :** Créer un problème original et théorique, pas un simple exercice d'application.
 
-2.  **Échappement OBLIGATOIRE des backslashs :**
-    - À l'intérieur du JSON généré, chaque backslash (\\) d'une commande LaTeX DOIT être doublé (échappé) pour être valide.
-    - EXEMPLE CORRECT : Pour obtenir $\\implies$, vous devez écrire "\\\\implies" dans la chaîne de caractères du JSON. Pour $\\in$, vous devez écrire "\\\\in".
+**LIGNES DIRECTRICES FONDAMENTALES :**
+1.  **Respect Impératif du Concept Central :**
+    -   ${conceptInstructions}
+    -   Le problème ne doit pas être une simple étude de fonction ou une résolution numérique. Il doit être une investigation des propriétés d'un objet mathématique abstrait (une famille de fonctions, une structure, etc.).
 
-3.  **EXEMPLES À SUIVRE SCRUPULEUSEMENT :**
-    - Appartenance : "Si $x \\in H$ et $y \\in H$..."
-    - Implication : "L'assertion $(1) \\implies (2)$ est vraie."
-    - Limite : "Calculer $$\\lim_{x \\to +\\infty} (\\sqrt{x^2+x} - x)$$"
-    - Fraction : "$$f(x) = \\frac{x^2 - 4}{x - 2}$$"
+2.  **Structure et Difficulté :**
+    -   **Progression Logique :** Le problème doit être structuré en plusieurs parties et sous-questions qui s'enchaînent. Le résultat d'une question doit servir de lemme pour la suivante.
+    -   **Discussion de Paramètres :** Les questions doivent fréquemment impliquer la discussion selon un paramètre (entier $n$, réel $a$, etc.).
+    -   **Niveau de Rigueur :** Les justifications attendues doivent être complètes et basées sur des théorèmes précis du programme.
 
-4.  Cette règle s'applique à TOUS les champs du JSON : "question", "options", et "correctAnswer".
+3.  **Barème :** Le total des points doit être EXACTEMENT ${totalPointsForProblem} points, répartis de manière juste.
+4.  **Formatage LaTeX OBLIGATOIRE :** Chaque expression mathématique doit être en LaTeX échappé pour JSON (e.g., "\\\\frac{a}{b}").
 
-SUJET :
-- **Thème Principal :** "${lessonTitle}"
-- **Concepts à intégrer :** ${subTopicsText}
-
-FORMAT DE SORTIE JSON STRICT (UNIQUEMENT l'objet JSON, sans aucun autre texte avant ou après) :
+**FORMAT DE SORTIE JSON STRICT :**
 \`\`\`json
 {
-  "problemTitle": "Problème sur ${lessonTitle}",
-  "text": "Partie A - On considère la fonction \\(g\\) définie sur \\(]0, +\\infty[\\) par \\(g(x) = x^2 - \\ln(x)\\).",
-  "subQuestions": [
+  "problemTitle": "${titreProbleme}",
+  "examItems": [
     {
-      "text": "1. a) Calculer \\(\\lim_{x \\to 0^+} g(x)\\).",
+      "itemType": "instruction",
+      "text": "Partie I : Mise en place et étude des propriétés fondamentales de l'objet mathématique."
+    },
+    {
+      "itemType": "question",
+      "text": "1. Première question théorique, basée sur les instructions.",
       "difficultyOrder": 1,
-      "points": 0.5
+      "points": 1.0
     },
     {
-      "text": "1. b) Montrer que \\(g\\) est croissante et dresser son tableau de variations.",
+      "itemType": "question",
+      "text": "2. Deuxième question qui s'appuie sur le résultat de la première.",
       "difficultyOrder": 2,
-      "points": 0.75
-    },
-    {
-      "text": "2. En déduire que \\(g(x) > 0\\) pour tout \\(x \\in ]0, +\\infty[\\).",
-      "difficultyOrder": 3,
-      "points": 0.5
+      "points": 1.25
     }
   ],
-  "totalPoints": ${totalPointsForProblem},
-  "lesson": "${lessonTitle}"
+  "totalPointsForProblem": ${totalPointsForProblem}
 }
 \`\`\`
-Vérifiez que la somme des points dans "subQuestions" est rigoureusement égale à "totalPoints".
+Soyez fidèle à l'esprit des examens de la filière Sciences Mathématiques : l'abstraction, la rigueur et la profondeur priment sur la complexité calculatoire pure.
 `;
-                // --- *** نهاية التعديل على البرومبت *** ---
             }
         }
     ],
 
     finalAggregator: (context, allStepsOutputs) => {
-        const problemData = allStepsOutputs.generate_exam_problem;
+        // ... (Le finalAggregator reste correct et n'a pas besoin d'être modifié)
+        const aiOutput = allStepsOutputs.generate_exam_problem;
 
-        if (!problemData || !problemData.text || !Array.isArray(problemData.subQuestions) || typeof problemData.totalPoints !== 'number') {
-             // التحقق من الحقول الأساسية
-            console.error("[MATH_EXAM_AGGREGATOR] Missing or invalid critical data from the generation step:", problemData);
-            throw new Error("Erreur interne: les données générées pour le problème de maths sont incomplètes.");
+        if (!aiOutput || !Array.isArray(aiOutput.examItems) || aiOutput.examItems.length === 0) {
+            console.error("[MATH_SM_AGGREGATOR] AI output is missing or has an invalid 'examItems' array:", aiOutput);
+            throw new Error("Erreur interne: les données générées par l'IA pour le problème de maths sont invalides.");
         }
 
-        let calculatedPoints = problemData.subQuestions.reduce((sum, sq) => sum + (Number(sq.points) || 0), 0);
-        calculatedPoints = Math.round(calculatedPoints * 100) / 100;
+        const problemItems = [];
+        let questionCounter = 0;
 
-        if (Math.abs(calculatedPoints - problemData.totalPoints) > 0.1) {
-            console.warn(`[MATH_EXAM_AGGREGATOR_WARN] Points mismatch. Stated: ${problemData.totalPoints}, Calculated: ${calculatedPoints}. Adjusting totalPoints.`);
-            problemData.totalPoints = calculatedPoints;
-        }
-
-        problemData.subQuestions.sort((a, b) => a.difficultyOrder - b.difficultyOrder).forEach((sq, index) => {
-            sq.difficultyOrder = index + 1;
+        aiOutput.examItems.forEach(item => {
+            if (item.itemType === 'instruction' || item.itemType === 'paragraph') {
+                problemItems.push({ itemType: 'content', contentType: item.itemType, text: item.text });
+            } else if (item.itemType === 'question') {
+                questionCounter++;
+                problemItems.push({
+                    itemType: 'question',
+                    text: item.text,
+                    points: item.points || 0,
+                    orderInProblem: item.difficultyOrder || questionCounter,
+                    questionType: 'free_text',
+                    correctAnswer: item.answer || 'La correction détaillée dépend de la méthode suivie.',
+                });
+            }
         });
 
+        const calculatedTotalPoints = problemItems.reduce((sum, item) => {
+            return item.itemType === 'question' ? sum + (Number(item.points) || 0) : sum;
+        }, 0);
+        
+        const finalPoints = Math.round(calculatedTotalPoints * 100) / 100;
+
+        if (Math.abs(finalPoints - aiOutput.totalPointsForProblem) > 0.15) {
+            console.warn(`[MATH_SM_AGGREGATOR_WARN] Points mismatch. AI Stated: ${aiOutput.totalPointsForProblem}, Calculated: ${finalPoints}. Using calculated value.`);
+        }
+
         return {
-            problemTitle: problemData.problemTitle || `Exercice sur ${context.lessonTitle}`,
-            text: problemData.text,
-            subQuestions: problemData.subQuestions,
-            totalPoints: problemData.totalPoints,
-            lesson: problemData.lesson || context.lessonTitle,
+            problemTitle: aiOutput.problemTitle || `Exercice sur ${context.lesson.titreLecon}`,
+            problemItems: problemItems,
+            problemTotalPossibleRawScore: finalPoints,
         };
     }
 };

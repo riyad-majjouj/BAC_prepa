@@ -15,7 +15,7 @@ module.exports = {
     },
 
     type: 'multi-step',
-    defaultGenerationConfig: { temperature: 0.7, maxOutputTokens: 4096 },
+    defaultGenerationConfig: { temperature: 0.7, maxOutputTokens: 8192 },
     defaultModelType: 'gemini-1.5-flash-latest',
     defaultStepDelayMs: 1500,
 
@@ -23,79 +23,65 @@ module.exports = {
         {
             name: 'prepare_problem_scope',
             processor: (context, previousOutputs) => {
-                // --- *** بداية التصحيح *** ---
-                // لم نعد بحاجة للبحث في curriculumData. نستخدم كائن الدرس مباشرةً.
-                const { lesson } = context; 
-
+                const { lesson } = context;
                 if (!lesson || !lesson.titreLecon) {
-                    console.warn(`[PC_EXAM_PREP_WARN] Invalid lesson object in context. Using fallback.`);
                     return { focusedSubTopics: ["concepts généraux"], totalPointsForProblem: 5, domain: "Physique", isChallengeProblem: Math.random() < 0.5 };
                 }
-
                 const domain = lesson.domaine || "Physique";
                 const subTopics = selectRandomSubTopics(lesson.paragraphes, 3);
-                
-                let suggestedPoints;
-                if (domain === "Chimie") {
-                    suggestedPoints = (Math.random() * 3) + 4.5;
-                } else {
-                    suggestedPoints = (Math.random() * 2.5) + 3.5;
-                }
-                
+                let suggestedPoints = (domain === "Chimie") ? ((Math.random() * 3) + 4.5) : ((Math.random() * 2.5) + 3.5);
                 suggestedPoints = Math.round(suggestedPoints * 4) / 4;
-                console.log(`[PC_EXAM_PREP] For ${domain} lesson "${lesson.titreLecon}", focusing on: [${subTopics.join(', ')}]. Suggested points: ${suggestedPoints}`);
                 return { focusedSubTopics: subTopics, totalPointsForProblem: suggestedPoints, domain: domain, isChallengeProblem: Math.random() < 0.5 };
-                // --- *** نهاية التصحيح *** ---
             }
         },
         {
             name: 'generate_exam_problem',
             promptGenerator: (context, previousOutputs) => {
-                const { lesson } = context; // نستخدم lesson مباشرةً
+                const { lesson } = context;
                 const { focusedSubTopics, totalPointsForProblem, domain, isChallengeProblem } = previousOutputs.prepare_problem_scope;
+                const challengeInstruction = isChallengeProblem ? `INSTRUCTION SPÉCIALE : Cet exercice doit être un DÉFI.` : `DIFFICULTÉ : Niveau standard de l'Examen National.`;
 
-                const challengeInstruction = isChallengeProblem 
-                    ? `INSTRUCTION SPÉCIALE DE DIFFICULTÉ : Cet exercice doit être un DÉFI. Créez un scénario non standard qui oblige l'élève à combiner plusieurs lois ou à analyser une situation complexe.`
-                    : `DIFFICULTÉ : L'exercice doit être d'un niveau standard pour l'Examen National (exigeant mais juste).`;
-
+                // [MODIFIED] The prompt now asks for a list of items.
                 return `
 Vous êtes un concepteur de sujets pour le Baccalauréat National Marocain, filière Sciences Mathématiques.
-Votre mission est de créer UN SEUL exercice de ${domain} qui reflète le style et la rigueur des examens nationaux.
+Votre mission est de créer UN SEUL exercice de ${domain}.
 
 LIGNES DIRECTRICES :
-1.  **Contexte Riche et Cohérent :** L'exercice doit commencer par un texte de présentation détaillé.
-2.  **Qualité des Questions :** ${challengeInstruction}
+1.  **Contexte Riche :** L'exercice doit commencer par un texte de présentation détaillé (dans un item de type "paragraph").
+2.  **Difficulté :** ${challengeInstruction}
 3.  **Barème :** Le total des points est EXACTEMENT ${totalPointsForProblem} points.
-4.  **Formatage :** Utilisez LaTeX (\\\\( ... \\\\) et \\\\\[ ... \\\\\]). Ne dépendez pas de graphiques.
+4.  **Formatage LaTeX OBLIGATOIRE :** Utilisez '$' pour les maths. Dans JSON, chaque '\\' doit être doublé (e.g., "\\\\frac{a}{b}").
 
-SUJET DE L'EXERCICE :
+SUJET :
 - **Domaine :** ${domain}
 - **Thème Principal :** "${lesson.titreLecon}"
 - **Concepts à intégrer :** ${focusedSubTopics.join(', ')}.
-
-INSPIRATION (Qualité attendue) :
-- **Exemple Chimie :** Étude d'une solution d'acide, puis sa réaction avec une autre base, puis son estérification.
-- **Exemple Mécanique :** Chute d'une balle en deux phases (libre, puis avec frottement), en utilisant la méthode d'Euler.
 
 FORMAT DE SORTIE JSON STRICT (UNIQUEMENT l'objet JSON) :
 \`\`\`json
 {
   "problemTitle": "Exercice de ${domain} : ${lesson.titreLecon}",
-  "text": "Le texte de présentation détaillé de l'exercice ici...",
-  "subQuestions": [
+  "examItems": [
     {
-      "text": "1. Établir l'équation différentielle...",
-      "difficultyOrder": 1,
-      "points": 1.0
+      "itemType": "paragraph",
+      "text": "Le texte de présentation détaillé de l'exercice ici. Il peut contenir des données numériques comme la masse $m = 50g$ ou la constante $k = 10 N/m$..."
     },
     {
-      "text": "2. Déterminer une expression...",
+      "itemType": "question",
+      "text": "1. Établir l'équation différentielle du mouvement en utilisant la deuxième loi de Newton.",
+      "difficultyOrder": 1,
+      "points": 1.0,
+      "answer": "L'application de la deuxième loi de Newton donne $m a_x = -k x$, donc $\\\ddot{x} + \\\\frac{k}{m} x = 0$."
+    },
+    {
+      "itemType": "question",
+      "text": "2. Déterminer l'expression de la période propre $T_0$ de l'oscillateur.",
       "difficultyOrder": 2,
-      "points": 0.75
+      "points": 0.75,
+      "answer": "La période propre est $T_0 = 2\\\\pi \\\\sqrt{\\\\frac{m}{k}}$."
     }
   ],
-  "totalPoints": ${totalPointsForProblem},
-  "lesson": "${lesson.titreLecon}"
+  "totalPointsForProblem": ${totalPointsForProblem}
 }
 \`\`\`
 `;
@@ -103,21 +89,48 @@ FORMAT DE SORTIE JSON STRICT (UNIQUEMENT l'objet JSON) :
         }
     ],
 
+    // [MODIFIED] This aggregator builds the `problemItems` structure.
     finalAggregator: (context, allStepsOutputs) => {
-        const problemData = allStepsOutputs.generate_exam_problem;
+        const aiOutput = allStepsOutputs.generate_exam_problem;
         const { lesson } = context;
 
-        if (!problemData || !problemData.text || !Array.isArray(problemData.subQuestions) || typeof problemData.totalPoints !== 'number') {
-            throw new Error("Erreur interne: les données générées sont incomplètes.");
+        if (!aiOutput || !Array.isArray(aiOutput.examItems) || aiOutput.examItems.length === 0) {
+            throw new Error("Erreur interne: les données générées pour le problème de PC sont incomplètes.");
         }
-        let calculatedPoints = problemData.subQuestions.reduce((sum, sq) => sum + (Number(sq.points) || 0), 0);
-        calculatedPoints = Math.round(calculatedPoints * 100) / 100;
-        if (Math.abs(calculatedPoints - problemData.totalPoints) > 0.1) {
-            problemData.totalPoints = calculatedPoints;
-        }
-        problemData.subQuestions.sort((a, b) => a.difficultyOrder - b.difficultyOrder).forEach((sq, index) => {
-            sq.difficultyOrder = index + 1;
+
+        const problemItems = [];
+        let questionCounter = 0;
+
+        aiOutput.examItems.forEach(item => {
+            if (item.itemType === 'paragraph' || item.itemType === 'instruction') {
+                problemItems.push({
+                    itemType: 'content',
+                    contentType: item.itemType,
+                    text: item.text,
+                });
+            } else if (item.itemType === 'question') {
+                questionCounter++;
+                problemItems.push({
+                    itemType: 'question',
+                    text: item.text,
+                    points: item.points || 0,
+                    orderInProblem: item.difficultyOrder || questionCounter,
+                    questionType: 'free_text',
+                    correctAnswer: item.answer || 'No model answer provided.',
+                });
+            }
         });
-        return { ...problemData, lesson: lesson.titreLecon };
+
+        const calculatedTotalPoints = problemItems.reduce((sum, item) => {
+            return item.itemType === 'question' ? sum + (Number(item.points) || 0) : sum;
+        }, 0);
+        
+        const finalPoints = Math.round(calculatedTotalPoints * 100) / 100;
+        
+        return {
+            problemTitle: aiOutput.problemTitle || `Exercice de ${lesson.domaine}`,
+            problemItems: problemItems,
+            totalPoints: finalPoints,
+        };
     }
 };

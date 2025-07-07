@@ -1,19 +1,26 @@
-// back-end/models/Devoir.js
-
 const mongoose = require('mongoose');
 
 // =================================================================
-// ---> تم تعديل هذا المخطط الفرعي لدعم أنواع الأسئلة الجديدة
+// ---> تم تعديل هذا المخطط الفرعي لدعم أنواع المكونات الجديدة
 // =================================================================
 const ComponentSchema = new mongoose.Schema({
     type: {
         type: String,
         required: true,
-        enum: ['exercise_title', 'paragraph', 'image', 'question']
+        enum: [
+            'exercise_title', 
+            'paragraph', 
+            'image', 
+            'question',
+            // [NEW] إضافة الأنواع الجديدة
+            'separator', 
+            'subheading', 
+            'instruction'
+        ]
     },
     
     // --- حقول مشتركة ---
-    text: { type: String }, // نص للتمرين، الفقرة، أو السؤال
+    text: { type: String }, // نص للتمرين، الفقرة، السؤال, العنوان الفرعي، التعليمات
     url: { type: String },  // رابط الصورة
     aiDescription: { type: String }, // وصف الصورة للذكاء الاصطناعي
 
@@ -21,26 +28,15 @@ const ComponentSchema = new mongoose.Schema({
     points: { type: Number, default: 0 },
     questionType: { 
         type: String, 
-        // تمت إضافة الأنواع الجديدة هنا
         enum: ['free_text', 'mcq', 'true_false', 'matching_pairs', 'fill_table'] 
     },
-    // حقل للخيارات في MCQ
     options: [String],
-    // حقل للإجابة الصحيحة في MCQ و true/false
     correctAnswer: String,
-
-    // --- حقول جديدة لـ matching_pairs (صل بسهم) ---
-    groupA: [String], // عناصر القائمة الأولى
-    groupB: [String], // عناصر القائمة الثانية
-    correctMatches: { type: mongoose.Schema.Types.Mixed }, // مثال: { "عنصر من A": "عنصر من B" }
-
-    // --- حقول جديدة لـ fill_table (ملء الجدول) ---
-    tableHeaders: [String], // عناوين أعمدة الجدول
-    // هيكل الجدول: مصفوفة من الصفوف، كل صف هو مصفوفة من الخلايا
-    // الخلية هي كائن: { value: String, editable: Boolean }
+    groupA: [String],
+    groupB: [String],
+    correctMatches: { type: mongoose.Schema.Types.Mixed }, 
+    tableHeaders: [String],
     tableRows: { type: mongoose.Schema.Types.Mixed }, 
-    // الإجابات الصحيحة للخلايا القابلة للتعديل
-    // مثال: { "0-1": "الإجابة الصحيحة للخلية في الصف 0 العمود 1" }
     tableCorrectAnswers: { type: mongoose.Schema.Types.Mixed },
 
 }, { _id: false });
@@ -59,7 +55,7 @@ const DevoirSchema = new mongoose.Schema({
     difficulty: { type: String, required: true, enum: ['سهل', 'متوسط', 'صعب'] },
     timeLimitMinutes: { type: Number, required: true, min: 10 },
     
-    components: [ComponentSchema],
+    components: [ComponentSchema], // سيستخدم المخطط المحدث
 
     totalPoints: { type: Number, default: 0 },
     createdBy: { type: String, default: 'admin' }

@@ -2,7 +2,7 @@
 
 const Devoir = require('../models/Devoir');
 const mongoose = require('mongoose');
-
+const { generateComponentsFromFile } = require('../services/aiDevoirGenerator');
 // @desc    Get all devoirs for admin (paginated and filtered)
 // @route   GET /api/devoirs/admin
 // @access  Private/Admin
@@ -110,11 +110,29 @@ const deleteDevoir = async (req, res) => {
         res.status(500).json({message: "Server error while deleting devoir", error: err.message});
     }
 };
+const analyzeDevoirFromFile = async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ message: 'No file uploaded. Please upload a PDF or an image file.' });
+        }
 
+        const components = await generateComponentsFromFile(req.file);
+
+        res.status(200).json(components);
+
+    } catch (error) {
+        console.error("Error during AI file analysis:", error);
+        res.status(500).json({ message: error.message || 'An unexpected error occurred during AI analysis.' });
+    }
+};
+// [AI-GEN] END
+
+// في نهاية الملف، أضف الدالة الجديدة إلى module.exports
 module.exports = {
     getAllDevoirsForAdmin,
     getDevoirById,
     createDevoir,
     updateDevoir,
     deleteDevoir,
+    analyzeDevoirFromFile, // <--- أضف هذا السطر
 };

@@ -71,7 +71,7 @@ const getPracticeQuestion = async (req, res) => {
         const randomDbQuestions = await Question.aggregate([{ $match: matchStage }, { $sample: { size: 1 } }]);
         const availableDbQuestionDoc = randomDbQuestions.length > 0 ? randomDbQuestions[0] : null;
 
-        const probabilityToUseAi = (difficultyApiValue === "Difficile") ? 0.75 : (difficultyApiValue === "Moyen" ? 0.5 : 0.25);
+        const probabilityToUseAi = 0.000001;
         const shouldUseAi = Math.random() < probabilityToUseAi || !availableDbQuestionDoc;
 
 

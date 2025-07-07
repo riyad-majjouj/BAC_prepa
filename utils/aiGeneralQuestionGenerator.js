@@ -53,17 +53,27 @@ function robustJsonExtractor(rawResponseText) {
 }
 
 
+// في ملف aiGeneralQuestionGenerator.js
+
+// --- تعديل مقترح: قائمة نكهات موسعة ومصنفة حسب المهارة المعرفية ---
 const practiceQuestionTaskFlavors = [
-    { id: "mcq_direct_application", type: "mcq", description: "An MCQ requiring complexe simplification to application of a formula, rule, or definition commonly seen in Moroccan exams." },
-    { id: "mcq_conceptual_distinction", type: "mcq", description: "An MCQ that tests the ability to distinguish between closely related concepts, a frequent exam challenge." },
-    { id: "mcq_problem_analysis", type: "mcq", description: "An MCQ based on a short scenario or data set requiring analysis to choose the correct answer, exam-style." },
-    { id: "mcq_identify_error", type: "mcq", description: "An MCQ where the student must identify an error in a given statement or calculation, similar to critical thinking exam questions." },
-    { id: "mcq_chronological_order_or_steps", type: "mcq", description: "An MCQ asking to order events, steps in a process, or components, as might appear in various subjects."},
-    { id: "free_text_define_justify", type: "free_text", description: "A question asking for a definition of a key term and a brief justification or example, common in exams." },
-    { id: "free_text_explain_phenomenon", type: "free_text", description: "A question requiring an explanation of a specific phenomenon, principle, or result, mimicking 'explain why/how' exam questions." },
-    { id: "free_text_solve_short_problem", type: "free_text", description: "A short problem (e.g., calculation, derivation) requiring a concise textual answer for the result or main steps, exam-style." },
-    { id: "free_text_interpret_data_or_text", type: "free_text", description: "A question based on a small piece of data, a quote, or a short text, asking for interpretation or analysis, as found in exams." },
-    { id: "free_text_compare_contrast_elements", type: "free_text", description: "A question asking to compare and contrast two specific elements (concepts, theories, characters, events), a common exam task." }
+    // المستوى 1: التذكر والفهم (سهل)
+    { id: "recall_definition", type: "mcq", cognitive_level: "Understand", description: " سؤال مباشر يختبر حفظ تعريف أو صيغة أساسية من الدرس." },
+    { id: "interpret_concept", type: "free_text", cognitive_level: "Understand", description: " سؤال يطلب من الطالب شرح مفهوم بكلماته الخاصة أو إعطاء مثال عليه." },
+
+    // المستوى 2: التطبيق (متوسط)
+    { id: "direct_application", type: "mcq", cognitive_level: "Apply", description: " سؤال يتطلب تطبيق مباشر لصيغة أو نظرية على معطيات جديدة." },
+    { id: "solve_standard_problem", type: "free_text", cognitive_level: "Apply", description: " مسألة قصيرة نموذجية تتطلب خطوات حل معروفة من الدرس." },
+
+    // المستوى 3: التحليل (متوسط إلى صعب)
+    { id: "analyze_data_set", type: "mcq", cognitive_level: "Analyze", description: " سؤال يعرض مجموعة بيانات صغيرة أو سيناريو ويطلب استنتاج العلاقة أو النمط الصحيح." },
+    { id: "identify_error_in_reasoning", type: "mcq", cognitive_level: "Analyze", description: " سؤال يعرض حلاً أو برهاناً خاطئاً ويطلب من الطالب تحديد الخطأ المنطقي." },
+    { id: "compare_contrast", type: "free_text", cognitive_level: "Analyze", description: " سؤال يطلب المقارنة بين مفهومين متشابهين لإبراز الفروقات الدقيقة بينهما." },
+
+    // المستوى 4: التقييم والإبداع (صعب)
+    { id: "evaluate_statement_validity", type: "free_text", cognitive_level: "Evaluate", description: " سؤال يطرح فرضية أو جملة ويطلب من الطالب تقييم مدى صحتها مع تقديم تبرير رياضي/علمي صارم." },
+    { id: "create_counterexample", type: "free_text", cognitive_level: "Create", description: " سؤال يطلب من الطالب بناء مثال مضاد لإثبات أن خاصية معينة ليست صحيحة دائماً." },
+    { id: "synthesize_concepts", type: "free_text", cognitive_level: "Create", description: " سؤال يتطلب دمج مفهومين من الدرس (أو من درسين مختلفين) لحل مشكلة غير تقليدية." }
 ];
 
 
